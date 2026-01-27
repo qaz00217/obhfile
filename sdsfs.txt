@@ -1,0 +1,589 @@
+/* ===== 행렬 ===== */
+//전역변수만★
+let storedMatrix = [
+    [1,0,0,0],
+    [0,1,0,0],
+    [0,0,1,0],
+    [0,0,0,1]
+];
+
+let storedMatrix1 = [
+    [1,0,0,0],
+    [0,1,0,0],
+    [0,0,1,0],
+    [0,0,0,1]
+];
+
+/* ===== OBJ 데이터 ===== */
+let set3d = {
+오브젝트:{},
+메테리얼:{},
+텍스처:{}
+}; 
+let vertices = [];
+let uvs = [];
+let normals = [];
+
+//mtl변수
+let Ns = 32;
+let Ka=[1.000000, 1.000000, 1.000000];
+let Ks=[1.000000, 1.000000, 1.000000];
+let Ke=[1.000000, 1.000000, 1.000000];
+let Ni=0;
+let d=1;
+let illum=2;
+let map_Kd="";
+let faceVertices=[];
+/* ===== 화면 ===== */
+const screenw = 480;
+const screenh = 360;
+const w = 240;
+const h = 180;
+let 화면z = new Float32Array(screenw * screenh).fill(Infinity);
+let 화면R = new Float32Array(screenw * screenh);
+let 화면G = new Float32Array(screenw * screenh);
+let 화면B = new Float32Array(screenw * screenh);
+let 화면a = new Float32Array(screenw * screenh);
+
+let 알파=0, 베타=0, 감마=0;
+
+let 텍스처w = 128;
+let 텍스처h = 128;
+let textureCanvas = document.createElement('canvas');
+let textureCtx = textureCanvas.getContext('2d');
+let 텍스처데이터 = null;
+let Lx=0,Ly=0,Lz=1;
+let Vx=0,Vy=0,Vz=1;
+
+let images = {};
+let mtls = {};
+let mtl데이터 = {};
+
+//함수,변수만★★
+function 알베감내적(a,b,c){ return a*알파 + b*베타 + c*감마; }
+function 엣지(px,py,ax,ay,bx,by){ return (px-ax)*(by-ay) - (py-ay)*(bx-ax); }
+function getTexturePixel(uv){
+	if(!텍스처데이터) return [255,255,255,255];
+	const idx = uv*4;
+	return [텍스처데이터[idx], 텍스처데이터[idx+1], 텍스처데이터[idx+2], 텍스처데이터[idx+3]];
+}
+function clamp(value, min=0, max=255) {
+    return Math.max(min, Math.min(max, value));
+}
+//함수,변수만 파싱★★
+function parseOBJ(data){
+    vertices = [];
+    uvs = [];
+    normals = [];
+    faceVertices = [];
+
+    const lines = data.replace(/\r/g,'').split('\n');
+    let currentObject = "default"; // 기본 오브젝트
+    let currentMaterial = "default";
+
+    for(const l of lines){
+        const s = l.trim();
+        if(!s || s[0]==='#') continue;
+
+        if (s.startsWith('o ')) {
+            currentObject = s.split(/\s+/)[1] || "default";
+            if (!set3d.오브젝트[currentObject]) {
+                set3d.오브젝트[currentObject] = {}; // f에서 재질 배열 생성
+            }
+            continue;
+        } 
+        else if(s.startsWith('v ')) vertices.push(s.split(/\s+/).slice(1,4).map(Number));
+        else if(s.startsWith('vt ')) uvs.push(s.split(/\s+/).slice(1,3).map(Number));
+        else if(s.startsWith('vn ')) normals.push(s.split(/\s+/).slice(1,4).map(Number));
+        else if(s.startsWith('usemtl ')){
+            currentMaterial = s.split(/\s+/)[1] || "default";
+            if (!set3d.오브젝트[currentObject][currentMaterial]) {
+                set3d.오브젝트[currentObject][currentMaterial] = [];
+            }
+        }
+        else if(s.startsWith('f ')){
+            // currentMaterial이 없으면 기본값
+            currentMaterial = currentMaterial || "default";
+
+            if(!set3d.오브젝트[currentObject][currentMaterial]) {
+                set3d.오브젝트[currentObject][currentMaterial] = [];
+            }
+
+            const p = s.split(/\s+/).slice(1).map(q=>{
+                const t = q.split('/');
+                const vi = parseInt(t[0],10)-1;
+                const ti = t[1] ? parseInt(t[1],10)-1 : -1;
+                const ni = t[2] ? parseInt(t[2],10)-1 : -1;
+                return [vi, ti, ni];
+            });
+
+            if(p.length < 3) continue; // 삼각형 아니면 무시
+
+            for(let i=1; i<p.length-1; i++){
+                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[0]));
+                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[i]));
+                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[i+1]));
+            }
+        }
+    }
+}
+
+
+function parseMTL(text){
+    set3d.메테리얼 = {};
+    let name = null;
+    let cur = null;
+
+    const lines = text.split(/\r?\n/);
+
+    for (let line of lines){
+        line = line.trim();
+        if (!line || line.startsWith("#")) continue;
+
+        const p = line.split(/\s+/);
+        const k = p[0];
+        const v = p.slice(1);
+
+        if (k === "newmtl"){
+            name = v[0];
+            cur = [
+                32,          // Ns
+                [1,1,1],     // Ka
+                [1,1,1],     // Ks
+                [0,0,0],     // Ke
+                1,           // Ni
+                1,           // d
+                2,           // illum
+                ""            // map_Kd
+            ];
+            set3d.메테리얼[name] = cur;
+            continue;
+        }
+
+        if (!cur) continue;
+
+        switch (k){
+            case "Ns": cur[0] = +v[0]; break;
+            case "Ka": cur[1] = v.map(Number); break;
+            case "Ks": cur[2] = v.map(Number); break;
+            case "Ke": cur[3] = v.map(Number); break;
+            case "Ni": cur[4] = +v[0]; break;
+            case "d":  cur[5] = +v[0]; break;
+            case "illum": cur[6] = v[0]|0; break;
+            case "map_Kd": cur[7] = v.join(" "); break;
+        }
+    }
+}
+
+
+
+function toRawGitHubURL(url){
+    url = String(url);
+    if (url.includes("raw.githubusercontent.com")) return url;
+
+    return url
+        .replace("https://github.com/", "https://raw.githubusercontent.com/")
+        .replace("/blob/", "/");
+}
+
+
+function buildVertex(i){
+	const v = vertices[i[0]];
+	const uv = i[1]>=0?uvs[i[1]]:[0,0];
+	const n = i[2]>=0?normals[i[2]]:[0,0,1];
+	return [v[0],v[1],v[2],uv[0],uv[1],n[0],n[1],n[2]];
+}
+async function loadTextureFromGitHub(texUrl){
+    const raw = toRawGitHubURL(texUrl);
+	const texName = raw.replace(/\\/g,'/').split('/').pop();
+
+    const img = await new Promise((resolve, reject)=>{
+        const image = new Image();
+        image.crossOrigin = "anonymous"; // ★ 중요
+        image.onload = ()=>resolve(image);
+        image.onerror = reject;
+        image.src = raw;
+    });
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+
+    set3d.텍스처[texName] = {
+        해상도: [img.width, img.height],
+        데이터: ctx.getImageData(0, 0, img.width, img.height).data
+    };
+
+    const idx = set3d.텍스처.length;
+    
+
+    return idx; // material에서 쓰라고 index 반환
+}
+
+
+//클래스만★★★
+class MatrixBlocks {
+    getInfo() {
+        return {
+            id: 'matrixBlocks',
+            name: 'Software3D',
+            blocks: [
+                { opcode:'renderAll', blockType:Scratch.BlockType.COMMAND, text:'렌더링 실행 월드,노말 행렬 설정 [objectName],[A],[B]',
+                  arguments:{
+				  objectName:{type:Scratch.ArgumentType.STRING, defaultValue:'objectName'}, 
+				  A:{type:Scratch.ArgumentType.STRING, defaultValue:'[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]'}, 
+				  B:{type:Scratch.ArgumentType.STRING, defaultValue:'[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]'}} 
+				},
+                { opcode:'getPixelR', blockType:Scratch.BlockType.REPORTER, text:'픽셀 [i] R', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+                { opcode:'getPixelG', blockType:Scratch.BlockType.REPORTER, text:'픽셀 [i] G', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+                { opcode:'getPixelB', blockType:Scratch.BlockType.REPORTER, text:'픽셀 [i] B', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+				{ opcode:'getPixelz', blockType:Scratch.BlockType.REPORTER, text:'픽셀 [i] z', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+				{ opcode:'getPixela', blockType:Scratch.BlockType.REPORTER, text:'픽셀 [i] a', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+                { 
+                    opcode: 'clearFrame', 
+                    blockType: Scratch.BlockType.COMMAND, 
+                    text: '모두지우기', 
+                },
+                { opcode:'setLight', blockType:Scratch.BlockType.COMMAND, text:'광원 방향 설정 X:[X] Y:[Y] Z:[Z]',
+				    arguments:{
+					    X:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
+					    Y:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
+					    Z:{type:Scratch.ArgumentType.NUMBER, defaultValue:1}
+					}
+				},
+				{ opcode:'디버그', blockType:Scratch.BlockType.REPORTER, text:'디버그 [i] ', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+                { opcode:'loadSource', blockType:Scratch.BlockType.COMMAND, text:'파일 불러오기 [SOURCE] URL:[URL]',
+                  arguments:{
+                      SOURCE:{type:Scratch.ArgumentType.STRING, menu:'sourceMenu', defaultValue:'로컬 폴더'},
+                      URL:{type:Scratch.ArgumentType.STRING, defaultValue:'https://github.com/username/repo/blob/main/model.obj'}
+                  }
+                },
+				{ opcode:'getObjectNames', blockType:Scratch.BlockType.REPORTER, text:'getObjectNames [i] ', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+			],
+            menus: {
+                sourceMenu: ['로컬 폴더', 'GitHub URL']
+            }
+        };
+    }
+	async loadSource({SOURCE, URL}) {
+		if (SOURCE === "로컬 폴더") {
+			await this.loadFolderTextures();
+		} else if (SOURCE === "GitHub URL") {
+			// 줄바꿈이나 공백으로 여러 URL 분리
+			const URLs = URL.split(/\s+/).map(u => u.trim()).filter(u => u);
+			if (URLs.length === 0) {
+				console.warn("URL이 입력되지 않았습니다.");
+				return;
+			}
+
+			for (const singleURL of URLs) {
+				await this.loadFile(singleURL); // 이제 객체가 아니라 문자열
+			}
+		}
+	}
+
+
+	async loadFolderTextures() {
+		// 1️⃣ 폴더 선택
+		const files = await new Promise(resolve => {
+			const input = document.createElement("input");
+			input.type = "file";
+			input.webkitdirectory = true; // 폴더 선택
+			input.multiple = true;
+			input.onchange = () => resolve(Array.from(input.files));
+			input.click();
+		});
+		if (!files || !files.length) return;
+
+		// 2️⃣ 파일별 처리
+		for (const file of files) {
+			const ext = file.name.split('.').pop().toLowerCase();
+			if (ext === 'obj') {
+				const text = await file.text();
+				parseOBJ(text);
+			} else if (ext === 'mtl') {
+				const text = await file.text();
+				parseMTL(text);
+			} else if (['png','jpg','jpeg','webp'].includes(ext)) {
+				const url = URL.createObjectURL(file);
+				await this._loadTextureFromBlob(url, file.name);
+				URL.revokeObjectURL(url);
+			} else {
+				console.warn("지원하지 않는 파일:", file.name);
+			}
+		}
+	}
+	async _loadTextureFromBlob(blobUrl, fileName) {
+		const img = await new Promise((resolve, reject) => {
+			const image = new Image();
+			image.onload = () => resolve(image);
+			image.onerror = reject;
+			image.src = blobUrl;
+		});
+
+		const canvas = document.createElement("canvas");
+		canvas.width = img.width;
+		canvas.height = img.height;
+		const ctx = canvas.getContext("2d");
+		ctx.drawImage(img, 0, 0);
+
+		set3d.텍스처[fileName] = {
+			해상도: [img.width, img.height],
+			데이터: ctx.getImageData(0, 0, img.width, img.height).data
+		};
+	}
+
+	async loadFile(URL) {
+		const ext = URL.split('.').pop().toLowerCase();
+
+		if (ext === 'obj') {
+			const objRaw = toRawGitHubURL(URL);
+			const objText = await fetch(objRaw).then(r => r.text());
+			parseOBJ(objText);
+		} else if (ext === 'mtl') {
+			const mtlRaw = toRawGitHubURL(URL);
+			const mtlText = await fetch(mtlRaw).then(r => r.text());
+			parseMTL(mtlText);
+		} else if (['png','jpg','jpeg','webp'].includes(ext)) {
+			await loadTextureFromGitHub(URL);
+		} else {
+			console.warn("지원하지 않는 확장자:", ext);
+		}
+}
+
+	async 디버그({i}){
+		return set3d;
+	}
+
+	clip(삼각형0, 삼각형1, 삼각형2) {
+		let v모음 = [this._transformVertex(삼각형0), this._transformVertex(삼각형1), this._transformVertex(삼각형2)];
+		v모음.push(v모음[0]);
+		
+		let v모음1 = [];
+		for (let i = 0; i < v모음.length - 1; i++) {
+			const a = v모음[i];
+			const b = v모음[i + 1];
+			const z0 = a[2];
+			const z1 = b[2];
+			let 마플 = -1;
+			if ((z0 >= -a[3]) && (z0 <= a[3])) v모음1.push(a);
+			for (let f = 0; f < 2; f++) {
+				마플 *= -1;
+				const w0 = a[3] * 마플;
+				const w1 = b[3] * 마플;
+				const dz = z1 - z0;
+				const dw = w1 - w0;
+				const denom = dz - dw;
+				let t = (w0 - z0) / denom;
+				if (t > 0 && t < 1) {
+					let out = [];
+					for (let k = 0; k < a.length; k++) {
+						out[k] = a[k] + (b[k] - a[k]) * t;
+					}
+					out[2] = out[3] * 마플; 
+					v모음1.push(out);
+				}
+			}
+		}
+		v모음 = v모음1;
+		for (let t = 0; t < v모음.length - 2; t++) {
+			this.rasterTriangle(v모음[0], v모음[t + 1], v모음[t + 2]);
+		}
+	}
+
+    setLight({X, Y, Z}) {
+        Lx = X; Ly = Y; Lz = Z;
+		Vx = X;
+		Vy = Y;
+		Vz = Z;
+    }
+    _transformVertex(v_){
+		let [x,y,z,u,v,nx,ny,nz]=v_;
+		let lastResult = new Array(9).fill(0);
+        const pw =
+            storedMatrix[3][0]*x +
+            storedMatrix[3][1]*y +
+            storedMatrix[3][2]*z +
+            storedMatrix[3][3]*1;
+        //if(pw===0) return;
+        const tx =
+            storedMatrix[0][0]*x +
+            storedMatrix[0][1]*y +
+            storedMatrix[0][2]*z +
+            storedMatrix[0][3]*1;
+        const ty =
+            storedMatrix[1][0]*x +
+            storedMatrix[1][1]*y +
+            storedMatrix[1][2]*z +
+            storedMatrix[1][3]*1;
+        const tz =
+            storedMatrix[2][0]*x +
+            storedMatrix[2][1]*y +
+            storedMatrix[2][2]*z +
+            storedMatrix[2][3]*1;
+        lastResult[0] = tx;
+        lastResult[1] = ty;
+        lastResult[2] = tz;
+		lastResult[3] = pw;
+        lastResult[4] = u/ pw;
+        lastResult[5] = (1-v)/ pw;
+        lastResult[6] =
+            (storedMatrix1[0][0]*nx +
+            storedMatrix1[0][1]*ny +
+            storedMatrix1[0][2]*nz +
+			storedMatrix1[0][3]*1);
+        lastResult[7] =
+            (storedMatrix1[1][0]*nx +
+            storedMatrix1[1][1]*ny +
+            storedMatrix1[1][2]*nz +
+			storedMatrix1[1][3]*1);
+        lastResult[8] =
+            (storedMatrix1[2][0]*nx +
+            storedMatrix1[2][1]*ny +
+            storedMatrix1[2][2]*nz +
+			storedMatrix1[2][3]*1);
+		return lastResult;
+    }
+
+    clearFrame(){
+        화면z.fill(Infinity);
+        화면R.fill(0);
+        화면G.fill(0);
+        화면B.fill(0);
+    }
+
+	renderAll({objectName, A, B}) {
+		if (!set3d.오브젝트[objectName]) return;
+
+		storedMatrix = JSON.parse(A);
+		storedMatrix1 = JSON.parse(B);
+
+		const obj = set3d.오브젝트[objectName];
+
+		for (const mtlName of Object.keys(obj)) {
+			const faceVertices = obj[mtlName];
+			if (!faceVertices || !faceVertices.length) continue;
+
+			// MTL 처리
+			let Ns=32, Ka=[1,1,1], Ks=[1,1,1], Ke=[0,0,0], Ni=1, d=1, illum=2, map_Kd="";
+			if(set3d.메테리얼[mtlName]){
+				[Ns,Ka,Ks,Ke,Ni,d,illum,map_Kd] = set3d.메테리얼[mtlName];
+			}
+
+			if (map_Kd && set3d.텍스처[map_Kd]) {
+				const tex = set3d.텍스처[map_Kd];
+				[텍스처w, 텍스처h] = tex.해상도;
+				텍스처데이터 = tex.데이터;
+			} else {
+				텍스처데이터 = null;
+			}
+
+			const triCount = faceVertices.length / 3;
+			for (let t = 0; t < triCount; t++) {
+				this.clip(
+					faceVertices[t*3],
+					faceVertices[t*3+1],
+					faceVertices[t*3+2]
+				);
+			}
+		}
+	}
+	getObjectNames({i}) {
+		const names = Object.keys(set3d.오브젝트);
+		return names[i] || "";
+	}
+
+
+
+
+	화면삼각형(tx, ty, tz, pw){
+		return [
+			Math.floor(w + 0.5 + (tx / pw) * w),
+			Math.floor(h+ - 0.5 + (ty / pw) * h),
+			tz / pw
+		];
+	}
+
+
+rasterTriangle(삼각형0,삼각형1,삼각형2){
+    let [x0,y0,z0,w0,u0,v0,nx0,ny0,nz0]=삼각형0
+    let [x1,y1,z1,w1,u1,v1,nx1,ny1,nz1]=삼각형1;
+    let [x2,y2,z2,w2,u2,v2,nx2,ny2,nz2]=삼각형2;
+    [x0,y0,z0]=this.화면삼각형(x0,y0,z0,w0);
+	[x1,y1,z1]=this.화면삼각형(x1,y1,z1,w1);
+	[x2,y2,z2]=this.화면삼각형(x2,y2,z2,w2);
+    const area=(x1-x0)*(y2-y0)-(y1-y0)*(x2-x0);
+    if(area>=0) return;
+
+    const minX=Math.max(0,Math.floor(Math.min(x0,x1,x2)));
+    const maxX=Math.min(screenw-1,Math.ceil(Math.max(x0,x1,x2)));
+    const minY=Math.max(0,Math.floor(Math.min(y0,y1,y2)));
+    const maxY=Math.min(screenh-1,Math.ceil(Math.max(y0,y1,y2)));
+
+    const ambient = 0.2;
+
+    for(let y=minY;y<=maxY;y++){
+        for(let x=minX;x<=maxX;x++){
+            알파=엣지(x1,y1,x2,y2,x,y);
+            베타=엣지(x2,y2,x0,y0,x,y);
+            감마=엣지(x0,y0,x1,y1,x,y);
+            if (알파 >= 0 && 베타 >= 0 && 감마 >= 0) {
+                알파/=area;
+                베타/=area;
+                감마/=area;
+                const pbw = 알베감내적(1/w0,1/w1,1/w2);
+                const 그리드 = Math.floor(x)+(screenw*(Math.floor(y)))
+                const z = 알베감내적(z0,z1,z2)/pbw;
+                if (z<화면z[그리드]){
+                    const u = 알베감내적(u0,u1,u2)/pbw;
+                    const v = 알베감내적(v0,v1,v2)/pbw;
+                    const nx = 알베감내적(nx0,nx1,nx2)/ pbw;
+                    const ny = 알베감내적(ny0,ny1,ny2)/ pbw;
+                    const nz = 알베감내적(nz0,nz1,nz2)/ pbw;
+                    const tx = Math.floor((0.5+(u*(텍스처w-1))));
+                    const ty = Math.floor((0.5+(v*(텍스처h-1))));
+                    const uv = (ty*텍스처w)+tx;
+
+                    const nlen = Math.hypot(nx, ny, nz) || 1;
+                    const nnx = nx / nlen;
+                    const nny = ny / nlen;
+                    const nnz = nz / nlen;
+
+                    let lxd = Lx, lyd = Ly, lzd = Lz;
+                    const llen = Math.hypot(lxd,lyd,lzd) || 1;
+                    [lxd,lyd,lzd] = [lxd/llen, lyd/llen, lzd/llen];
+
+                    let diffuse = Math.max(nnx*lxd + nny*lyd + nnz*lzd, 0);
+                    let diffuseWithAmbient = Math.min((0.7*diffuse) + ambient, 1);
+
+                    let Hx = lxd + Vx;
+                    let Hy = lyd + Vy;
+                    let Hz = lzd + Vz;
+                    const Hlen = Math.hypot(Hx,Hy,Hz) || 1;
+                    Hx/=Hlen; Hy/=Hlen; Hz/=Hlen;
+                    let spec = Math.pow(Math.max(nnx*Hx + nny*Hy + nnz*Hz,0), Ns);
+
+                    const [r, g, b, a] = getTexturePixel(uv);
+					화면R[그리드] = clamp(r*diffuseWithAmbient + spec*255);
+					화면G[그리드] = clamp(g*diffuseWithAmbient + spec*255);
+					화면B[그리드] = clamp(b*diffuseWithAmbient + spec*255);
+                    화면a[그리드] = a;
+                    화면z[그리드] = z;
+                }
+            }
+        }
+    }
+}
+
+
+    getPixelR({i}){ return 화면R[i]; }
+    getPixelG({i}){ return 화면G[i]; }
+    getPixelB({i}){ return 화면B[i]; }
+	getPixelz({i}){ return 화면z[i]; }
+	getPixela({i}){ return 화면a[i]; }
+}
+
+Scratch.extensions.register(new MatrixBlocks());
