@@ -34,6 +34,18 @@ let d=1;
 let illum=2;
 let map_Kd="";
 let faceVertices=[];
+let ar;
+let ag;
+let ab;
+
+let sr;
+let sg;
+let sb;
+
+let er;
+let eg;
+let eb;
+let objectpack=[];
 /* ===== 화면 ===== */
 const screenw = 480;
 const screenh = 360;
@@ -223,6 +235,43 @@ async function loadTextureFromGitHub(texUrl){
     return idx; // material에서 쓰라고 index 반환
 }
 
+function collectResources(){
+	const 오브젝트 = set3d.오브젝트;
+	const 메테리얼 = set3d.메테리얼;
+	const 텍스처 = set3d.텍스처;
+    for (const objectName in set3d.오브젝트) {
+		let result = {
+		mtl:{},
+		메테리얼:{},
+		텍스처:{}
+		};
+        const mtl = 오브젝트[objectName];
+        for (const mtlName in mtl) {
+			const [Ns,Ka,Ks,Ke,Ni,d,illum,map_Kd] = 메테리얼[mtlName];
+            result.mtl[mtlName] = mtl[mtlName].map(v => v.slice());;
+            // === material 깊은복사 ===
+            result.메테리얼[mtlName] = [
+                Ns,
+                [...Ka],
+                [...Ks],
+                [...Ke],
+                Ni,
+                d,
+                illum,
+                map_Kd
+            ];
+            if (map_Kd && 텍스처[map_Kd]) {
+                const tex = 텍스처[map_Kd];
+                result.텍스처[map_Kd] = {
+                    해상도: [...tex.해상도],
+                    데이터: new Uint8ClampedArray(tex.데이터)
+                };
+            }
+        }
+		objectpack.push(result);
+    }
+}
+
 
 //클래스만★★★
 class MatrixBlocks {
@@ -231,9 +280,9 @@ class MatrixBlocks {
             id: 'matrixBlocks',
             name: 'Software3D',
             blocks: [
-                { opcode:'renderAll', blockType:Scratch.BlockType.COMMAND, text:'렌더링 실행 월드,노말 행렬 설정 [objectName],[A],[B]',
+                { opcode:'renderAll', blockType:Scratch.BlockType.COMMAND, text:'렌더링 실행 월드,노말 행렬 설정 [objIndex],[A],[B]',
                   arguments:{
-				  objectName:{type:Scratch.ArgumentType.STRING, defaultValue:'objectName'}, 
+				  objIndex:{type:Scratch.ArgumentType.NUMBER, defaultValue:'0'}, 
 				  A:{type:Scratch.ArgumentType.STRING, defaultValue:'[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]'}, 
 				  B:{type:Scratch.ArgumentType.STRING, defaultValue:'[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]'}} 
 				},
@@ -269,6 +318,11 @@ class MatrixBlocks {
         };
     }
 	async loadSource({SOURCE, URL}) {
+		set3d = {
+		오브젝트:{},
+		메테리얼:{},
+		텍스처:{}
+		}; 
 		if (SOURCE === "로컬 폴더") {
 			await this.loadFolderTextures();
 		} else if (SOURCE === "GitHub URL") {
@@ -283,6 +337,7 @@ class MatrixBlocks {
 				await this.loadFile(singleURL); // 이제 객체가 아니라 문자열
 			}
 		}
+		collectResources()
 	}
 
 
@@ -355,7 +410,7 @@ class MatrixBlocks {
 }
 
 	async 디버그({i}){
-		return set3d;
+		return objectpack;
 	}
 
 	clip(삼각형0, 삼각형1, 삼각형2) {
@@ -431,20 +486,20 @@ class MatrixBlocks {
         lastResult[4] = u/ pw;
         lastResult[5] = (1-v)/ pw;
         lastResult[6] =
-            (storedMatrix1[0][0]*nx +
+            storedMatrix1[0][0]*nx +
             storedMatrix1[0][1]*ny +
-            storedMatrix1[0][2]*nz +
-			storedMatrix1[0][3]*1);
+            storedMatrix1[0][2]*nz;
+			
         lastResult[7] =
-            (storedMatrix1[1][0]*nx +
+            storedMatrix1[1][0]*nx +
             storedMatrix1[1][1]*ny +
-            storedMatrix1[1][2]*nz +
-			storedMatrix1[1][3]*1);
+            storedMatrix1[1][2]*nz;
+			
         lastResult[8] =
-            (storedMatrix1[2][0]*nx +
+            storedMatrix1[2][0]*nx +
             storedMatrix1[2][1]*ny +
-            storedMatrix1[2][2]*nz +
-			storedMatrix1[2][3]*1);
+            storedMatrix1[2][2]*nz;
+			
 		return lastResult;
     }
 
@@ -455,32 +510,45 @@ class MatrixBlocks {
         화면B.fill(0);
     }
 
-	renderAll({objectName, A, B}) {
-		if (!set3d.오브젝트[objectName]) return;
-
+	renderAll({objIndex , A, B}) {
+		if (!objectpack[objIndex]) {
+			console.warn("objIndex가 잘못됨:", objIndex);
+			return;
+		}
 		storedMatrix = JSON.parse(A);
 		storedMatrix1 = JSON.parse(B);
 
-		const obj = set3d.오브젝트[objectName];
-
-		for (const mtlName of Object.keys(obj)) {
-			const faceVertices = obj[mtlName];
+		const obj = objectpack[objIndex];
+		const mtl=obj.mtl;
+		const 메테리얼=obj.메테리얼;
+		const 텍스처=obj.텍스처;
+		for (const mtlName in mtl) {
+			const faceVertices = mtl[mtlName];
 			if (!faceVertices || !faceVertices.length) continue;
 
 			// MTL 처리
-			let Ns=32, Ka=[1,1,1], Ks=[1,1,1], Ke=[0,0,0], Ni=1, d=1, illum=2, map_Kd="";
-			if(set3d.메테리얼[mtlName]){
-				[Ns,Ka,Ks,Ke,Ni,d,illum,map_Kd] = set3d.메테리얼[mtlName];
+			if(메테리얼[mtlName]){
+				[Ns,Ka,Ks,Ke,Ni,d,illum,map_Kd] = 메테리얼[mtlName];
 			}
 
-			if (map_Kd && set3d.텍스처[map_Kd]) {
-				const tex = set3d.텍스처[map_Kd];
+			if (map_Kd && 텍스처[map_Kd]) {
+				const tex = 텍스처[map_Kd];
 				[텍스처w, 텍스처h] = tex.해상도;
 				텍스처데이터 = tex.데이터;
 			} else {
 				텍스처데이터 = null;
 			}
+			ar = Ka[0]* 255;
+			ag = Ka[1]* 255;
+			ab = Ka[2]* 255;
 
+			sr = Ks[0] * 255;
+			sg = Ks[1] * 255;
+			sb = Ks[2] * 255;
+
+			er = Ke[0] * 255;
+			eg = Ke[1] * 255;
+			eb = Ke[2] * 255;
 			const triCount = faceVertices.length / 3;
 			for (let t = 0; t < triCount; t++) {
 				this.clip(
@@ -502,7 +570,7 @@ class MatrixBlocks {
 	화면삼각형(tx, ty, tz, pw){
 		return [
 			Math.floor(w + 0.5 + (tx / pw) * w),
-			Math.floor(h+ - 0.5 + (ty / pw) * h),
+			Math.floor(h+( - 0.5 + (ty / pw) * h)),
 			tz / pw
 		];
 	}
@@ -525,6 +593,7 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
 
     const ambient = 0.2;
 
+
     for(let y=minY;y<=maxY;y++){
         for(let x=minX;x<=maxX;x++){
             알파=엣지(x1,y1,x2,y2,x,y);
@@ -540,9 +609,9 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
                 if (z<화면z[그리드]){
                     const u = 알베감내적(u0,u1,u2)/pbw;
                     const v = 알베감내적(v0,v1,v2)/pbw;
-                    const nx = 알베감내적(nx0,nx1,nx2)/ pbw;
-                    const ny = 알베감내적(ny0,ny1,ny2)/ pbw;
-                    const nz = 알베감내적(nz0,nz1,nz2)/ pbw;
+                    const nx = 알베감내적(nx0,nx1,nx2);
+                    const ny = 알베감내적(ny0,ny1,ny2);
+                    const nz = 알베감내적(nz0,nz1,nz2);
                     const tx = Math.floor((0.5+(u*(텍스처w-1))));
                     const ty = Math.floor((0.5+(v*(텍스처h-1))));
                     const uv = (ty*텍스처w)+tx;
@@ -554,10 +623,10 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
 
                     let lxd = Lx, lyd = Ly, lzd = Lz;
                     const llen = Math.hypot(lxd,lyd,lzd) || 1;
-                    [lxd,lyd,lzd] = [lxd/llen, lyd/llen, lzd/llen];
-
+                    lxd/=llen,lyd/=llen,lzd/=llen;
+					
                     let diffuse = Math.max(nnx*lxd + nny*lyd + nnz*lzd, 0);
-                    let diffuseWithAmbient = Math.min((0.7*diffuse) + ambient, 1);
+                    let diffuseWithAmbient = Math.min((0.7*diffuse), 1);
 
                     let Hx = lxd + Vx;
                     let Hy = lyd + Vy;
@@ -567,10 +636,10 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
                     let spec = Math.pow(Math.max(nnx*Hx + nny*Hy + nnz*Hz,0), Ns);
 
                     const [r, g, b, a] = getTexturePixel(uv);
-					화면R[그리드] = clamp(r*diffuseWithAmbient + spec*255);
-					화면G[그리드] = clamp(g*diffuseWithAmbient + spec*255);
-					화면B[그리드] = clamp(b*diffuseWithAmbient + spec*255);
-                    화면a[그리드] = a;
+					화면R[그리드] = clamp(r*diffuseWithAmbient + (spec*sr)+(ambient*ar)+er);
+					화면G[그리드] = clamp(g*diffuseWithAmbient + (spec*sg)+(ambient*ag)+eg);
+					화면B[그리드] = clamp(b*diffuseWithAmbient + (spec*sb)+(ambient*ab)+eb);
+                    화면a[그리드] = a*d;
                     화면z[그리드] = z;
                 }
             }
