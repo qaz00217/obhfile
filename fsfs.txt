@@ -759,13 +759,13 @@ class MatrixBlocks {
 				},
 				'---',
 				{ opcode:'setdx', blockType:Scratch.BlockType.COMMAND, text:'x축:[i]도 방향 보기',
-				arguments:{ i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0} } },
+				arguments:{ i:{type:Scratch.ArgumentType.ANGLE, defaultValue:0} } },
 
 				{ opcode:'setdy', blockType:Scratch.BlockType.COMMAND, text:'y축:[i]도 방향 보기',
-				arguments:{ i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0} } },
+				arguments:{ i:{type:Scratch.ArgumentType.ANGLE, defaultValue:0} } },
 
 				{ opcode:'setdz', blockType:Scratch.BlockType.COMMAND, text:'z축:[i]도 방향 보기',
-				arguments:{ i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0} } },
+				arguments:{ i:{type:Scratch.ArgumentType.ANGLE, defaultValue:0} } },
 				{
 				  opcode: '상대방보기',
 				  blockType: Scratch.BlockType.COMMAND,
@@ -838,20 +838,25 @@ class MatrixBlocks {
                 sourceMenu: ['로컬 폴더', 'GitHub URL'],
 				sourceMenu2: ['카메라1', '카메라2'],
 				modeMenu:['이동','회전','크기'],
-				OBJECT_MENU: {
-				  items: () => {
-					if (!objectpack || objectpack.length === 0) {
-					  return [{ text: '없음', value: '0' }];
-					}
-					return objectpack.map((o, i) => ({
-					  text: `${i}:${o?.name ?? 'object'}`,
-					  value: String(i)
-					}));
-				  }
-				}
+				  OBJECT_MENU: {
+					acceptReporters: true,
+					items: this.getObjectMenu.bind(this)
+				  },
             }
         };
     }
+getObjectMenu() {
+  if (!Array.isArray(objectpack) || objectpack.length === 0) {
+    return [{
+      text: '없음',
+
+    }];
+  }
+
+  return objectpack.map((o, i) => ({
+    text: `${i}: ${o.name || 'object'}`,
+  }));
+}
 원근투영({far,near,fov}){
 	const obj = objectpack[0];
 	obj.dirty = true;
@@ -941,7 +946,7 @@ class MatrixBlocks {
 constructor() {
     objectpack.push(오브젝트구조체("카메라"));
     const obj = objectpack[0];
-    obj.tz = 2;
+    obj.tz = 5;
     obj.dirty = true;
 	this.원근투영({far:1000,near:0.1,fov:90})
     this.loadSource({
@@ -954,6 +959,7 @@ constructor() {
         ]`
     });
 }
+
 
 	카메라메뉴({SOURCE}){
 	카메라행렬=SOURCE;
@@ -1398,7 +1404,7 @@ async 디버그({i},util) {
 		frameRGBA[i]   = 255;   // R
 		frameRGBA[i+1] = 255;   // G
 		frameRGBA[i+2] = 255; // B (파랑)
-		frameRGBA[i+3] = 255; // A ★★★
+		frameRGBA[i+3] = 0; // A ★★★
 	  }
 	}
 
@@ -1534,7 +1540,7 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
 					frameRGBA[idx] = clamp(r*diffuseWithAmbient + (spec*sr)+(ambient*ar)+er);
 					frameRGBA[idx+1] = clamp(g*diffuseWithAmbient + (spec*sg)+(ambient*ag)+eg);
 					frameRGBA[idx+2] = clamp(b*diffuseWithAmbient + (spec*sb)+(ambient*ab)+eb);
-                    //frameRGBA[idx+3] = (255-a)*d;
+                    frameRGBA[idx+3] = (a)*d;
                     화면z[그리드] = z;
                 }
             }
@@ -1548,13 +1554,13 @@ Scratch.extensions.register(__3d);
 
 let _needDraw = false;
 
-(function 터보워프hookVM() {
+(function 터보워프VM() {
   const vm = Scratch.vm;
 
   const renderer = Scratch.vm.renderer;
   const oldDraw = renderer.draw;
   const oldStep = vm.runtime._step;
-  vm.runtime._step = function (...args) {
+  vm.runtime._step = function (...args){
   
     // 1️⃣ 새 스프라이트 자동 바인딩
     vm.runtime.targets.forEach(t => {
@@ -1563,19 +1569,20 @@ let _needDraw = false;
       }
     });
     if (!__3d) return;
-
-  renderer.draw = function (...args) {
+	_needDraw = false;
+  renderer.draw = function (...args){
+  if (_needDraw) return 0;
 	__3d.clearFrame();
 	__3d.renderAllObjects();
 	oldDraw.apply(this, args);
+	_needDraw = true;
+	window.drawFrameRGBA(frameRGBA);
   }
-  window.drawFrameRGBA(frameRGBA);
+  
   oldStep.apply(this, args);
   };
 
-
 })();
-
 
 })(Scratch);
 
