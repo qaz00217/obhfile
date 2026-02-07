@@ -178,8 +178,8 @@ let frameRGBA = new Uint8ClampedArray(screenw * screenh * 4);
   class RGBAExtension {
     getInfo() {
       return {
-        id: "rgbaFullscreen",
-        name: "RGBA Fullscreen",
+		id: 'sdsd',
+		name: 'sds',
         blocks: [
           {
             opcode: "test",
@@ -943,7 +943,7 @@ constructor() {
     const obj = objectpack[0];
     obj.tz = 2;
     obj.dirty = true;
-	this.원근투영({far:1000,near:0.1,fov:52})
+	this.원근투영({far:1000,near:0.1,fov:90})
     this.loadSource({
         SOURCE: "GitHub URL",
         URL: `[
@@ -1543,41 +1543,39 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
 }
 
 }
-const __matrixExt = new MatrixBlocks();
-Scratch.extensions.register(__matrixExt);
+const __3d = new MatrixBlocks();
+Scratch.extensions.register(__3d);
 
 let _needDraw = false;
 
 (function 터보워프hookVM() {
   const vm = Scratch.vm;
-  const oldStep = vm.runtime._step;
 
+  const renderer = Scratch.vm.renderer;
+  const oldDraw = renderer.draw;
+  const oldStep = vm.runtime._step;
   vm.runtime._step = function (...args) {
-  oldStep.apply(this, args);
+  
     // 1️⃣ 새 스프라이트 자동 바인딩
     vm.runtime.targets.forEach(t => {
       if (!t.isStage && t._software3DIndex === undefined) {
         t._software3DIndex = 0;
       }
     });
-    if (!__matrixExt) return;
-
-    // ===== 프레임 계산 =====
-    __matrixExt.clearFrame();
-    __matrixExt.renderAllObjects();
-
-    _needDraw = true; // ⭐ “이번 프레임 그려라”
-  };
-  const renderer = Scratch.vm.renderer;
-  const oldDraw = renderer.draw;
+    if (!__3d) return;
 
   renderer.draw = function (...args) {
-  oldDraw.apply(this, args);
-    if ( _needDraw && window.drawFrameRGBA) {
-      window.drawFrameRGBA(frameRGBA);
-      _needDraw = false; // ⭐ 프레임 소모
-    }
+	__3d.clearFrame();
+	__3d.renderAllObjects();
+	oldDraw.apply(this, args);
+  }
+  window.drawFrameRGBA(frameRGBA);
+  oldStep.apply(this, args);
   };
+
+
 })();
 
+
 })(Scratch);
+
