@@ -213,23 +213,6 @@ let frameRGBA = new Uint8ClampedArray(screenw * screenh * 4);
 (function (Scratch) {
   'use strict';
 
-/* ===== 행렬 ===== */
-//전역변수만★
-let 행렬={};
-let storedMatrix = [
-    [1,0,0,0],
-    [0,1,0,0],
-    [0,0,1,0],
-    [0,0,0,1]
-];
-
-let storedMatrix1 = [
-    [1,0,0,0],
-    [0,1,0,0],
-    [0,0,1,0],
-    [0,0,0,1]
-];
-
 /* ===== OBJ 데이터 ===== */
 let set3d = {
 오브젝트:{},
@@ -525,6 +508,12 @@ let cam2 = [
 	0,0,0,1
 ];
 let wtrs = [
+	1,0,0,0,
+	0,1,0,0,
+	0,0,1,0,
+	0,0,0,1
+];
+let 방향행렬 = [
 	1,0,0,0,
 	0,1,0,0,
 	0,0,1,0,
@@ -946,7 +935,7 @@ getObjectMenu() {
 constructor() {
     objectpack.push(오브젝트구조체("카메라"));
     const obj = objectpack[0];
-    obj.tz = 5;
+    obj.tz = 4;
     obj.dirty = true;
 	this.원근투영({far:1000,near:0.1,fov:90})
     this.loadSource({
@@ -1203,6 +1192,7 @@ cam행렬({ tx, ty, tz, dx, dy, dz, sx, sy, sz }) {
 				trs(obj.tx, obj.ty, obj.tz, obj.dx, obj.dy, obj.dz, obj.sx, obj.sy, obj.sz);
 				obj.matrix = 행렬곱([s, rz, ry, rx, t]);
 			}
+			방향행렬=행렬곱([cam1,objectpack[i].matrix]);
 			wtrs = 행렬곱([objectpack[i].matrix, cam1, p]);
 			this.renderAll({objIndex:i});
 			}
@@ -1370,8 +1360,8 @@ async 디버그({i},util) {
 		let [x, y, z, u, v, nx, ny, nz] = v_;
 		let lastResult = new Array(9).fill(0);
 
-		const m  = storedMatrix;   // 4x4 column-major
-		const mi = storedMatrix1;  // 3x3 column-major
+		const m = wtrs;
+		const mi = 방향행렬;
 
 		// ===== position : v' = M * v =====
 		const tx = m[0]*x + m[4]*y + m[8]*z  + m[12];
@@ -1414,8 +1404,6 @@ async 디버그({i},util) {
 			console.warn("objIndex가 잘못됨:", objIndex);
 			return;
 		}
-		storedMatrix = new Float32Array(wtrs);
-		storedMatrix1 = new Float32Array(cam1);
 
 		const obj = objectpack[objIndex];
 		const mtl=obj.mtl;
@@ -1556,32 +1544,42 @@ let _needDraw = false;
 
 (function 터보워프VM() {
   const vm = Scratch.vm;
-
   const renderer = Scratch.vm.renderer;
   const oldDraw = renderer.draw;
   const oldStep = vm.runtime._step;
-  vm.runtime._step = function (...args){
-  
+
+  vm.runtime._step = function (...args) {
     // 1️⃣ 새 스프라이트 자동 바인딩
     vm.runtime.targets.forEach(t => {
       if (!t.isStage && t._software3DIndex === undefined) {
         t._software3DIndex = 0;
       }
     });
-    if (!__3d) return;
-	_needDraw = false;
-  renderer.draw = function (...args){
-  if (_needDraw) return 0;
-	__3d.clearFrame();
-	__3d.renderAllObjects();
-	oldDraw.apply(this, args);
-	_needDraw = true;
-	window.drawFrameRGBA(frameRGBA);
-  }
-  
-  oldStep.apply(this, args);
-  };
+	
+    // 기존 step 실행
+    oldStep.apply(this, args);
+      __3d.clearFrame();
+      __3d.renderAllObjects();
 
+    // 2️⃣ draw override
+    renderer.draw = function (...args) {
+      if (_needDraw) return; // 이미 1회 그려졌으면 스킵
+
+      if (!__3d) return oldDraw.apply(this, args);
+
+
+      oldDraw.apply(this, args);
+
+      // 프레임 1회 그리기 완료
+      _needDraw = true;
+
+      // 화면에 출력
+      
+    };
+	window.drawFrameRGBA(frameRGBA);
+    // 다음 step 전에 플래그 초기화
+    setTimeout(() => { _needDraw = false }, 0.03); // 또는 requestAnimationFrame 활용
+  };
 })();
 
 })(Scratch);
