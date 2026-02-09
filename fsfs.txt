@@ -426,11 +426,15 @@ async function loadTextureFromGitHub(texUrl){
 
     return idx; // material에서 쓰라고 index 반환
 }
-function 오브젝트구조체(이름){
+function 오브젝트구조체(){
 		return {
 		mtl:{},
 		메테리얼:{},
 		텍스처:{},
+		};
+}
+function 스프라이트구조체(타입){
+		return {
 		tx: 0, ty: 0, tz: 0,
 		// 회전 (rad)
 		dx: 0, dy: 0, dz: 0,
@@ -442,7 +446,8 @@ function 오브젝트구조체(이름){
 		  0,0,0,1
 		]),
 		dirty: true,
-		name: 이름
+		type: 타입,
+		pack: null,
 		};
 }
 function collectResources(){
@@ -450,7 +455,7 @@ function collectResources(){
 	const 메테리얼 = set3d.메테리얼;
 	const 텍스처 = set3d.텍스처;
     for (const objectName in set3d.오브젝트) {
-		let result = 오브젝트구조체("오브젝트");
+		let result = 오브젝트구조체();
         const mtl = 오브젝트[objectName];
         for (const mtlName in mtl) {
 			const [Ns,Ka,Ks,Ke,Ni,d,illum,map_Kd] = 메테리얼[mtlName];
@@ -686,6 +691,7 @@ function 행렬곱(행렬모음) {
 
 
 let 카메라행렬="카메라1";
+let 수집=[]
 //클래스만★★★
 class MatrixBlocks {
     getInfo() {
@@ -730,9 +736,9 @@ class MatrixBlocks {
 				{
 				  opcode: '상대쪽으로이동',
 				  blockType: Scratch.BlockType.COMMAND,
-				  text: '[target](으)로 이동하기',
+				  text: '[i](으)로 이동하기',
 				  arguments: {
-					target: {type:Scratch.ArgumentType.STRING, menu:'OBJECT_MENU', defaultValue:'0'},
+					i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
 				  }
 				},
 				{
@@ -758,9 +764,9 @@ class MatrixBlocks {
 				{
 				  opcode: '상대방보기',
 				  blockType: Scratch.BlockType.COMMAND,
-				  text: '[target]쪽 보기',
+				  text: '[i]쪽 보기',
 				  arguments: {
-					target: {type:Scratch.ArgumentType.STRING, menu:'OBJECT_MENU', defaultValue:'0'}
+					i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
 				  }
 				},
 				'---',
@@ -791,7 +797,7 @@ class MatrixBlocks {
 				{ opcode:'겟sx좌표', blockType:Scratch.BlockType.REPORTER, text:'x크기'},
 				{ opcode:'겟sy좌표', blockType:Scratch.BlockType.REPORTER, text:'y크기'},
 				{ opcode:'겟sz좌표', blockType:Scratch.BlockType.REPORTER, text:'z크기'},
-				{ opcode:'겟스프라이트인덱스', blockType:Scratch.BlockType.REPORTER, text:'스프라이트인덱스'},
+				{ opcode:'겟타입', blockType:Scratch.BlockType.REPORTER, text:'타입'},
 				'---',
 				{ 
 					opcode:'해상도바꾸기', blockType:Scratch.BlockType.COMMAND, text:'해상도바꾸기 width:[width] height:[height]',
@@ -806,9 +812,9 @@ class MatrixBlocks {
                   }
                 },
 				{
-				  opcode: '내오브젝트인덱스설정',
+				  opcode: '오브젝트모양설정',
 				  blockType:Scratch.BlockType.COMMAND,
-				  text: '내 오브젝트 인덱스설정 [i]',
+				  text: '오브젝트모양설정[i]',
 				  arguments:{ i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0} }
 				},
 				{
@@ -847,8 +853,6 @@ getObjectMenu() {
   }));
 }
 원근투영({far,near,fov}){
-	const obj = objectpack[0];
-	obj.dirty = true;
     const aspect = screenw / screenh;   // ★ OpenGL은 width / height
     const fov1 = fov * Math.PI / 180;      // ★ radian
 
@@ -874,69 +878,54 @@ getObjectMenu() {
     p[14] = (2 * far * near) / (near - far);
     p[15] = 0;
 }
-겟스프라이트인덱스(_, util){
-		const idx = util.target._software3DIndex;
-		return idx;
+겟타입(_, util){
+		const obj = util.target.software3D;
+		return obj.type;
 }
 겟x좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.tx;
 }
 겟y좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.ty;
 }
 겟z좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.tz;
 }
 겟dx좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.dx;
 }
 겟dy좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.dy;
 }
 겟dz좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.dz;
 }
 겟sx좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.sx;
 }
 겟sy좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.sy;
 }
 겟sz좌표(_, util){
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		return obj.sz;
 }
-내오브젝트인덱스설정({ i }, util) {
-    const target = util.target;
+오브젝트모양설정({ i }, util) {
+    const obj = util.target.software3D;
     const idx = Math.floor(i);
-
-    if (idx < 0 || idx >= objectpack.length) return;
-
-    target._software3DIndex = idx;
+    obj.pack = objectpack[idx];
 }
 
 constructor() {
-    objectpack.push(오브젝트구조체("카메라"));
-    const obj = objectpack[0];
-    obj.tz = 4;
-    obj.dirty = true;
+
 	this.원근투영({far:1000,near:0.1,fov:90})
     this.loadSource({
         SOURCE: "GitHub URL",
@@ -1003,92 +992,79 @@ constructor() {
 		frameRGBA = new Uint8ClampedArray(screenw * screenh * 4);
 	}
 	dx바꾸기({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
-
+		const obj = util.target.software3D;
 		obj.dx += i;
 		obj.dirty = true;
 	}
-	dy바꾸기({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	dy바꾸기({ i }, util) {
+		const obj = util.target.software3D;
 		obj.dy += i;
 		obj.dirty = true;
 	}
-	dz바꾸기({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	dz바꾸기({ i }, util) {
+		const obj = util.target.software3D;
 		obj.dz += i;
 		obj.dirty = true;
 	}
-	setdx({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	setdx({ i }, util) {
+		const obj = util.target.software3D;
 		obj.dx = i;
 		obj.dirty = true;
 	}
-	setdy({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	setdy({ i }, util) {
+		const obj = util.target.software3D;
 		obj.dy = i;
 		obj.dirty = true;
 	}
-	setdz({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	setdz({ i }, util) {
+		const obj = util.target.software3D;
 		obj.dz = i;
 		obj.dirty = true;
 	}
-	x바꾸기({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	x바꾸기({ i }, util) {
+		const obj = util.target.software3D;
 		obj.tx += i;
 		obj.dirty = true;
 	}
-	y바꾸기({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	y바꾸기({ i }, util) {
+		const obj = util.target.software3D;
 		obj.ty += i;
 		obj.dirty = true;
 	}
-	z바꾸기({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	z바꾸기({ i }, util) {
+		const obj = util.target.software3D;
 		obj.tz += i;
 		obj.dirty = true;
 	}
-	setx({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	setx({ i }, util) {
+		const obj = util.target.software3D;
 		obj.tx = i;
 		obj.dirty = true;
 	}
-	sety({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	sety({ i }, util) {
+		const obj = util.target.software3D;
 		obj.ty = i;
 		obj.dirty = true;
 	}
-	setz({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
 
+	setz({ i }, util) {
+		const obj = util.target.software3D;
 		obj.tz = i;
 		obj.dirty = true;
 	}
+
 	xmove({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 
 		회전(obj.dx, obj.dy, obj.dz);
 		const m = 행렬곱([ry, rz]);
@@ -1099,9 +1075,9 @@ constructor() {
 
 		obj.dirty = true;
 	}
+
 	ymove({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 
 		회전(obj.dx, obj.dy, obj.dz);
 		const m = 행렬곱([ry, rz]);
@@ -1112,9 +1088,9 @@ constructor() {
 
 		obj.dirty = true;
 	}
+
 	zmove({ i }, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 
 		회전(obj.dx, obj.dy, obj.dz);
 		const m = 행렬곱([ry, rz]);
@@ -1125,6 +1101,7 @@ constructor() {
 
 		obj.dirty = true;
 	}
+
 
 	draw(){
 		window.drawFrameRGBA(frameRGBA);
@@ -1143,8 +1120,7 @@ cam행렬({ tx, ty, tz, dx, dy, dz, sx, sy, sz }) {
 }
 
 	이동회전크기({mode, x, y, z}, util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
+		const obj = util.target.software3D;
 		if (!obj) return;
 
 		switch(mode) {
@@ -1169,35 +1145,34 @@ cam행렬({ tx, ty, tz, dx, dy, dz, sx, sy, sz }) {
 	}
 
 
-	renderAllObjects() {
-		for (let i = 0; i < objectpack.length; i++) {
-			const obj = objectpack[i];
-			if (obj.name === "카메라" && obj.dirty) {
-				obj.dirty = false;
-				this.cam행렬({
-					tx: obj.tx,
-					ty: obj.ty,
-					tz: obj.tz,
-					dx: obj.dx,
-					dy: obj.dy,
-					dz: obj.dz,
-					sx: obj.sx,
-					sy: obj.sy,
-					sz: obj.sz
-				});
-			}
-			else if (obj.name=="오브젝트"){
-			if (obj.dirty){
-				obj.dirty = false;
-				trs(obj.tx, obj.ty, obj.tz, obj.dx, obj.dy, obj.dz, obj.sx, obj.sy, obj.sz);
-				obj.matrix = 행렬곱([s, rz, ry, rx, t]);
-			}
-			방향행렬=행렬곱([cam1,objectpack[i].matrix]);
-			wtrs = 행렬곱([objectpack[i].matrix, cam1, p]);
-			this.renderAll({objIndex:i});
-			}
+	renderAllObjects(obj) {
+		if (!obj) return;
+		if (obj.type === "카메라" && obj.dirty) {
+			obj.dirty = false;
+			this.cam행렬({
+				tx: obj.tx,
+				ty: obj.ty,
+				tz: obj.tz,
+				dx: obj.dx,
+				dy: obj.dy,
+				dz: obj.dz,
+				sx: obj.sx,
+				sy: obj.sy,
+				sz: obj.sz
+			});
+		}
+		else if (obj.type=="오브젝트"){
+		if (obj.dirty){
+			obj.dirty = false;
+			trs(obj.tx, obj.ty, obj.tz, obj.dx, obj.dy, obj.dz, obj.sx, obj.sy, obj.sz);
+			obj.matrix = 행렬곱([s, rz, ry, rx, t]);
+		}
+		방향행렬=행렬곱([cam1,obj.matrix]);
+		wtrs = 행렬곱([obj.matrix, cam1, p]);
+		this.renderAll(obj.pack);
 		}
 	}
+	
 async loadSource({ SOURCE, URL }) {
     // 초기 리소스
     set3d = {
@@ -1308,10 +1283,9 @@ async loadSource({ SOURCE, URL }) {
 		}
 }
 
-async 디버그({i},util) {
-		const idx = util.target._software3DIndex;
-		const obj = objectpack[idx];
-		return obj.tx;
+async 디버그({i}) {
+
+		return cam1;
 }
 
 	clip(삼각형0, 삼각형1, 삼각형2) {
@@ -1399,13 +1373,9 @@ async 디버그({i},util) {
 	}
 
 
-	renderAll({objIndex}) {
-		if (!objectpack[objIndex]) {
-			console.warn("objIndex가 잘못됨:", objIndex);
-			return;
-		}
+	renderAll(obj) {
+		if (!obj)return;
 
-		const obj = objectpack[objIndex];
 		const mtl=obj.mtl;
 		const 메테리얼=obj.메테리얼;
 		const 텍스처=obj.텍스처;
@@ -1540,47 +1510,59 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
 const __3d = new MatrixBlocks();
 Scratch.extensions.register(__3d);
 
-let _needDraw = false;
 
+
+let _needDraw = false;
+let 스프라이트카운트=0;
+// 1️⃣ draw override 한 번만
 (function 터보워프VM() {
   const vm = Scratch.vm;
   const renderer = Scratch.vm.renderer;
   const oldDraw = renderer.draw;
+
+  renderer.draw = function(...args) {
+    if (_needDraw) return oldDraw.apply(this, args);
+
+    if (!__3d) return oldDraw.apply(this, args);
+
+
+    oldDraw.apply(this, args);
+    _needDraw = true;
+
+    if (window.drawFrameRGBA && typeof frameRGBA !== 'undefined') {
+      window.drawFrameRGBA(frameRGBA);
+    }
+  };
+
+  // 2️⃣ _step override: 스프라이트 바인딩
   const oldStep = vm.runtime._step;
-
-  vm.runtime._step = function (...args) {
-    // 1️⃣ 새 스프라이트 자동 바인딩
+  vm.runtime._step = function(...args) {
+	__3d.clearFrame();
     vm.runtime.targets.forEach(t => {
-      if (!t.isStage && t._software3DIndex === undefined) {
-        t._software3DIndex = 0;
+      if (t.software3D === undefined) {
+		t.setSize(0); // 2D 렌더 제거
+		t.software3D=스프라이트구조체("오브젝트");
+		if (t.isStage){
+		const obj = t.software3D;
+		obj.type="카메라";
+		obj.tz = 3;
+		obj.dirty = true;
+		}
       }
+    // objectpack이 준비되었을 때만 바인딩
+    if (!t.software3D.pack && objectpack[0]) {
+        t.software3D.pack = objectpack[0];
+    }
+    __3d.renderAllObjects(t.software3D); // 필요하면 인자 전달
     });
-	
-    // 기존 step 실행
+
     oldStep.apply(this, args);
-      __3d.clearFrame();
-      __3d.renderAllObjects();
 
-    // 2️⃣ draw override
-    renderer.draw = function (...args) {
-      if (_needDraw) return; // 이미 1회 그려졌으면 스킵
-
-      if (!__3d) return oldDraw.apply(this, args);
-
-
-      oldDraw.apply(this, args);
-
-      // 프레임 1회 그리기 완료
-      _needDraw = true;
-
-      // 화면에 출력
-      
-    };
-	window.drawFrameRGBA(frameRGBA);
-    // 다음 step 전에 플래그 초기화
-    setTimeout(() => { _needDraw = false }, 0.03); // 또는 requestAnimationFrame 활용
+    // 다음 스텝 전에 플래그 초기화
+    requestAnimationFrame(() => { _needDraw = false });
   };
 })();
+
 
 })(Scratch);
 
