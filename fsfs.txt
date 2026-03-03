@@ -1,3 +1,161 @@
+/* ===== OBJ 데이터 ===== */
+let set3d = { 오브젝트:{}, 메테리얼:{}, 텍스처:{} }; 
+let vertices = []; let uvs = []; let normals = [];
+
+// mtl변수
+let Ns = 32; let Ka=[1,1,1]; let Ks=[1,1,1]; let Ke=[1,1,1];
+let Ni=0; let d=1; let illum=2; let map_Kd=""; let faceVertices=[];
+let ar, ag, ab; let sr, sg, sb; let er, eg, eb; let objectpack=[];
+let images = {}; let mtls = {}; let mtl데이터 = {};
+
+function parseOBJ(data){
+    vertices=[]; uvs=[]; normals=[]; faceVertices=[];
+    const lines = data.replace(/\r/g,'').split('\n');
+    let currentObject="default"; let currentMaterial="default";
+
+    for(const l of lines){
+        const s=l.trim(); if(!s||s[0]==='#') continue;
+        if(s.startsWith('o ')){
+            currentObject=s.split(/\s+/)[1]||"default";
+            if(!set3d.오브젝트[currentObject]) set3d.오브젝트[currentObject]={};
+            continue;
+        } else if(s.startsWith('v ')) vertices.push(s.split(/\s+/).slice(1,4).map(Number));
+        else if(s.startsWith('vt ')) uvs.push(s.split(/\s+/).slice(1,3).map(Number));
+        else if(s.startsWith('vn ')) normals.push(s.split(/\s+/).slice(1,4).map(Number));
+        else if(s.startsWith('usemtl ')){
+            currentMaterial=s.split(/\s+/)[1]||"default";
+            if(!set3d.오브젝트[currentObject][currentMaterial])
+                set3d.오브젝트[currentObject][currentMaterial]=[];
+        } else if(s.startsWith('f ')){
+            currentMaterial=currentMaterial||"default";
+            if(!set3d.오브젝트[currentObject][currentMaterial])
+                set3d.오브젝트[currentObject][currentMaterial]=[];
+            const p=s.split(/\s+/).slice(1).map(q=>{
+                const t=q.split('/'); const vi=parseInt(t[0],10)-1;
+                const ti=t[1]?parseInt(t[1],10)-1:-1; const ni=t[2]?parseInt(t[2],10)-1:-1;
+                return [vi,ti,ni];
+            });
+            if(p.length<3) continue;
+            for(let i=1;i<p.length-1;i++){
+                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[0]));
+                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[i]));
+                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[i+1]));
+            }
+        }
+    }
+}
+
+function parseMTL(text){
+    set3d.메테리얼={}; let name=null; let cur=null;
+    const lines=text.split(/\r?\n/);
+    for(let line of lines){
+        line=line.trim(); if(!line||line.startsWith("#")) continue;
+        const p=line.split(/\s+/); const k=p[0]; const v=p.slice(1);
+        if(k==="newmtl"){
+            name=v[0]; cur=[32,[1,1,1],[1,1,1],[0,0,0],1,1,2,""];
+            set3d.메테리얼[name]=cur; continue;
+        }
+        if(!cur) continue;
+        switch(k){
+            case "Ns": cur[0]=+v[0]; break;
+            case "Ka": cur[1]=v.map(Number); break;
+            case "Ks": cur[2]=v.map(Number); break;
+            case "Ke": cur[3]=v.map(Number); break;
+            case "Ni": cur[4]=+v[0]; break;
+            case "d": cur[5]=+v[0]; break;
+            case "illum": cur[6]=v[0]|0; break;
+            case "map_Kd": cur[7]=v.join(" "); break;
+        }
+    }
+}
+
+function toRawGitHubURL(url){
+    url=String(url);
+    if(url.includes("raw.githubusercontent.com")) return url;
+    return url.replace("https://github.com/","https://raw.githubusercontent.com/").replace("/blob/","/");
+}
+
+function buildVertex(i){
+    const v=vertices[i[0]]; const uv=i[1]>=0?uvs[i[1]]:[0,0];
+    const n=i[2]>=0?normals[i[2]]:[0,0,1];
+    return [v[0],v[1],v[2],uv[0],uv[1],n[0],n[1],n[2]];
+}
+
+async function loadTextureFromGitHub(texUrl){
+    const raw=toRawGitHubURL(texUrl);
+    const texName=raw.replace(/\\/g,'/').split('/').pop();
+    const img=await new Promise((resolve,reject)=>{
+        const image=new Image(); image.crossOrigin="anonymous";
+        image.onload=()=>resolve(image); image.onerror=reject; image.src=raw;
+    });
+    const canvas=document.createElement("canvas"); const ctx=canvas.getContext("2d");
+    canvas.width=img.width; canvas.height=img.height; ctx.drawImage(img,0,0);
+    set3d.텍스처[texName]={해상도:[img.width,img.height], 데이터:ctx.getImageData(0,0,img.width,img.height).data};
+    return set3d.텍스처.length;
+}
+
+function 오브젝트구조체(){
+    return { mtl:{}, 메테리얼:{}, 텍스처:{} };
+}
+
+function 스프라이트구조체(타입){
+    return {
+        tx:0, ty:0, tz:0, dx:0, dy:0, dz:0, sx:1, sy:1, sz:1,
+        matrix:new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]),
+        dirty:true, type:타입, pack:null
+    };
+}
+
+function collectResources(){
+    const 오브젝트=set3d.오브젝트; const 메테리얼=set3d.메테리얼; const 텍스처=set3d.텍스처;
+    for(const objectName in set3d.오브젝트){
+        let result=오브젝트구조체(); const mtl=오브젝트[objectName];
+        for(const mtlName in mtl){
+            const [Ns,Ka,Ks,Ke,Ni,d,illum,map_Kd]=메테리얼[mtlName];
+            result.mtl[mtlName]=mtl[mtlName].map(v=>v.slice());
+            result.메테리얼[mtlName]=[Ns,[...Ka],[...Ks],[...Ke],Ni,d,illum,map_Kd];
+            if(map_Kd && 텍스처[map_Kd]){
+                const tex=텍스처[map_Kd];
+                result.텍스처[map_Kd]={해상도:[...tex.해상도], 데이터:new Uint8ClampedArray(tex.데이터)};
+            }
+        }
+        objectpack.push(result);
+    }
+}
+
+async function loadFolderTextures(){
+    const files=await new Promise(resolve=>{
+        const input=document.createElement("input"); input.type="file"; input.webkitdirectory=true;
+        input.multiple=true; input.onchange=()=>resolve(Array.from(input.files)); input.click();
+    });
+    if(!files||!files.length) return;
+    for(const file of files){
+        const ext=file.name.split('.').pop().toLowerCase();
+        if(ext==='obj'){ const text=await file.text(); parseOBJ(text); }
+        else if(ext==='mtl'){ const text=await file.text(); parseMTL(text); }
+        else if(['png','jpg','jpeg','webp'].includes(ext)){
+            const url=URL.createObjectURL(file); await _loadTextureFromBlob(url,file.name); URL.revokeObjectURL(url);
+        } else { console.warn("지원하지 않는 파일:",file.name); }
+    }
+}
+
+async function _loadTextureFromBlob(blobUrl,fileName){
+    const img=await new Promise((resolve,reject)=>{
+        const image=new Image(); image.onload=()=>resolve(image); image.onerror=reject; image.src=blobUrl;
+    });
+    const canvas=document.createElement("canvas"); canvas.width=img.width; canvas.height=img.height;
+    const ctx=canvas.getContext("2d"); ctx.drawImage(img,0,0);
+    set3d.텍스처[fileName]={해상도:[img.width,img.height], 데이터:ctx.getImageData(0,0,img.width,img.height).data};
+}
+
+async function loadFile(URL){
+    const ext=URL.split('.').pop().toLowerCase();
+    if(ext==='obj'){ const objRaw=toRawGitHubURL(URL); const objText=await fetch(objRaw).then(r=>r.text()); parseOBJ(objText); }
+    else if(ext==='mtl'){ const mtlRaw=toRawGitHubURL(URL); const mtlText=await fetch(mtlRaw).then(r=>r.text()); parseMTL(mtlText); }
+    else if(['png','jpg','jpeg','webp'].includes(ext)){ await loadTextureFromGitHub(URL); }
+    else { console.warn("지원하지 않는 확장자:",ext); }
+}
+
 //해상도
 let screenw = 480;
 let screenh = 360;
@@ -213,38 +371,7 @@ let frameRGBA = new Uint8ClampedArray(screenw * screenh * 4);
 (function (Scratch) {
   'use strict';
 
-/* ===== OBJ 데이터 ===== */
-let set3d = {
-오브젝트:{},
-메테리얼:{},
-텍스처:{}
-}; 
-let vertices = [];
-let uvs = [];
-let normals = [];
 
-//mtl변수
-let Ns = 32;
-let Ka=[1.000000, 1.000000, 1.000000];
-let Ks=[1.000000, 1.000000, 1.000000];
-let Ke=[1.000000, 1.000000, 1.000000];
-let Ni=0;
-let d=1;
-let illum=2;
-let map_Kd="";
-let faceVertices=[];
-let ar;
-let ag;
-let ab;
-
-let sr;
-let sg;
-let sb;
-
-let er;
-let eg;
-let eb;
-let objectpack=[];
 /* ===== 화면 ===== */
 
 
@@ -274,214 +401,7 @@ function getTexturePixel(uv){
 function clamp(value, min=0, max=255) {
     return Math.max(min, Math.min(max, value));
 }
-//함수,변수만 파싱★★
-function parseOBJ(data){
-    vertices = [];
-    uvs = [];
-    normals = [];
-    faceVertices = [];
 
-    const lines = data.replace(/\r/g,'').split('\n');
-    let currentObject = "default"; // 기본 오브젝트
-    let currentMaterial = "default";
-
-    for(const l of lines){
-        const s = l.trim();
-        if(!s || s[0]==='#') continue;
-
-        if (s.startsWith('o ')) {
-            currentObject = s.split(/\s+/)[1] || "default";
-            if (!set3d.오브젝트[currentObject]) {
-                set3d.오브젝트[currentObject] = {}; // f에서 재질 배열 생성
-            }
-            continue;
-        } 
-        else if(s.startsWith('v ')) vertices.push(s.split(/\s+/).slice(1,4).map(Number));
-        else if(s.startsWith('vt ')) uvs.push(s.split(/\s+/).slice(1,3).map(Number));
-        else if(s.startsWith('vn ')) normals.push(s.split(/\s+/).slice(1,4).map(Number));
-        else if(s.startsWith('usemtl ')){
-            currentMaterial = s.split(/\s+/)[1] || "default";
-            if (!set3d.오브젝트[currentObject][currentMaterial]) {
-                set3d.오브젝트[currentObject][currentMaterial] = [];
-            }
-        }
-        else if(s.startsWith('f ')){
-            // currentMaterial이 없으면 기본값
-            currentMaterial = currentMaterial || "default";
-
-            if(!set3d.오브젝트[currentObject][currentMaterial]) {
-                set3d.오브젝트[currentObject][currentMaterial] = [];
-            }
-
-            const p = s.split(/\s+/).slice(1).map(q=>{
-                const t = q.split('/');
-                const vi = parseInt(t[0],10)-1;
-                const ti = t[1] ? parseInt(t[1],10)-1 : -1;
-                const ni = t[2] ? parseInt(t[2],10)-1 : -1;
-                return [vi, ti, ni];
-            });
-
-            if(p.length < 3) continue; // 삼각형 아니면 무시
-
-            for(let i=1; i<p.length-1; i++){
-                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[0]));
-                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[i]));
-                set3d.오브젝트[currentObject][currentMaterial].push(buildVertex(p[i+1]));
-            }
-        }
-    }
-}
-
-
-function parseMTL(text){
-    set3d.메테리얼 = {};
-    let name = null;
-    let cur = null;
-
-    const lines = text.split(/\r?\n/);
-
-    for (let line of lines){
-        line = line.trim();
-        if (!line || line.startsWith("#")) continue;
-
-        const p = line.split(/\s+/);
-        const k = p[0];
-        const v = p.slice(1);
-
-        if (k === "newmtl"){
-            name = v[0];
-            cur = [
-                32,          // Ns
-                [1,1,1],     // Ka
-                [1,1,1],     // Ks
-                [0,0,0],     // Ke
-                1,           // Ni
-                1,           // d
-                2,           // illum
-                ""            // map_Kd
-            ];
-            set3d.메테리얼[name] = cur;
-            continue;
-        }
-
-        if (!cur) continue;
-
-        switch (k){
-            case "Ns": cur[0] = +v[0]; break;
-            case "Ka": cur[1] = v.map(Number); break;
-            case "Ks": cur[2] = v.map(Number); break;
-            case "Ke": cur[3] = v.map(Number); break;
-            case "Ni": cur[4] = +v[0]; break;
-            case "d":  cur[5] = +v[0]; break;
-            case "illum": cur[6] = v[0]|0; break;
-            case "map_Kd": cur[7] = v.join(" "); break;
-        }
-    }
-}
-
-
-
-function toRawGitHubURL(url){
-    url = String(url);
-    if (url.includes("raw.githubusercontent.com")) return url;
-
-    return url
-        .replace("https://github.com/", "https://raw.githubusercontent.com/")
-        .replace("/blob/", "/");
-}
-
-
-function buildVertex(i){
-	const v = vertices[i[0]];
-	const uv = i[1]>=0?uvs[i[1]]:[0,0];
-	const n = i[2]>=0?normals[i[2]]:[0,0,1];
-	return [v[0],v[1],v[2],uv[0],uv[1],n[0],n[1],n[2]];
-}
-async function loadTextureFromGitHub(texUrl){
-    const raw = toRawGitHubURL(texUrl);
-	const texName = raw.replace(/\\/g,'/').split('/').pop();
-
-    const img = await new Promise((resolve, reject)=>{
-        const image = new Image();
-        image.crossOrigin = "anonymous"; // ★ 중요
-        image.onload = ()=>resolve(image);
-        image.onerror = reject;
-        image.src = raw;
-    });
-
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-
-    canvas.width = img.width;
-    canvas.height = img.height;
-    ctx.drawImage(img, 0, 0);
-
-    set3d.텍스처[texName] = {
-        해상도: [img.width, img.height],
-        데이터: ctx.getImageData(0, 0, img.width, img.height).data
-    };
-
-    const idx = set3d.텍스처.length;
-    
-
-    return idx; // material에서 쓰라고 index 반환
-}
-function 오브젝트구조체(){
-		return {
-		mtl:{},
-		메테리얼:{},
-		텍스처:{},
-		};
-}
-function 스프라이트구조체(타입){
-		return {
-		tx: 0, ty: 0, tz: 0,
-		// 회전 (rad)
-		dx: 0, dy: 0, dz: 0,
-		sx: 1, sy: 1, sz: 1,
-		matrix: new Float32Array([
-		  1,0,0,0,
-		  0,1,0,0,
-		  0,0,1,0,
-		  0,0,0,1
-		]),
-		dirty: true,
-		type: 타입,
-		pack: null,
-		};
-}
-function collectResources(){
-	const 오브젝트 = set3d.오브젝트;
-	const 메테리얼 = set3d.메테리얼;
-	const 텍스처 = set3d.텍스처;
-    for (const objectName in set3d.오브젝트) {
-		let result = 오브젝트구조체();
-        const mtl = 오브젝트[objectName];
-        for (const mtlName in mtl) {
-			const [Ns,Ka,Ks,Ke,Ni,d,illum,map_Kd] = 메테리얼[mtlName];
-            result.mtl[mtlName] = mtl[mtlName].map(v => v.slice());;
-            // === material 깊은복사 ===
-            result.메테리얼[mtlName] = [
-                Ns,
-                [...Ka],
-                [...Ks],
-                [...Ke],
-                Ni,
-                d,
-                illum,
-                map_Kd
-            ];
-            if (map_Kd && 텍스처[map_Kd]) {
-                const tex = 텍스처[map_Kd];
-                result.텍스처[map_Kd] = {
-                    해상도: [...tex.해상도],
-                    데이터: new Uint8ClampedArray(tex.데이터)
-                };
-            }
-        }
-		objectpack.push(result);
-    }
-}
 //변수,행렬함수
 let rx = new Float32Array(16);
 let ry = new Float32Array(16);
@@ -493,20 +413,19 @@ let iry = new Float32Array(16);
 let irz = new Float32Array(16);
 let it = new Float32Array(16);
 let is = new Float32Array(16);
-let cam = new Float32Array(16);
 let 항등행렬 =[
 	1,0,0,0,
 	0,1,0,0,
 	0,0,1,0,
 	0,0,0,1
 ];
-let cam1 = [
+let cam = [
 	1,0,0,0,
 	0,1,0,0,
 	0,0,1,0,
 	0,0,0,1
 ];
-let cam2 = [
+let cam1 = [
 	1,0,0,0,
 	0,1,0,0,
 	0,0,1,0,
@@ -689,9 +608,8 @@ function 행렬곱(행렬모음) {
     return out행렬;
 }
 
-
-let 카메라행렬="카메라1";
-let 수집=[]
+let 카메라타입=0;
+let 카메라시선={tx:0, ty:0, tz:0, dx:0, dy:0, dz:0, sx:1, sy:1, sz:1,};
 //클래스만★★★
 class MatrixBlocks {
     getInfo() {
@@ -702,35 +620,17 @@ class MatrixBlocks {
 			color2: '#333333',
 			color3: '#4CAF50',
 			blocks: [
-                { opcode:'setLight', blockType:Scratch.BlockType.COMMAND, text:'광원 방향 설정 X:[X] Y:[Y] Z:[Z]',
-				    arguments:{
-					    X:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
-					    Y:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
-					    Z:{type:Scratch.ArgumentType.NUMBER, defaultValue:1}
+				{ 
+				opcode:'이동방향으로움직이기', blockType:Scratch.BlockType.COMMAND, text:'[이동방향](으)로 x:[x]y:[y]z:[z] 만큼 움직이기',
+					arguments:{ 
+					이동방향:{type:Scratch.ArgumentType.STRING, menu:'이동방향', defaultValue:'상하좌우'},
+					x:{type:Scratch.ArgumentType.NUMBER,defaultValue:0},
+					y:{type:Scratch.ArgumentType.NUMBER,defaultValue:0},
+					z:{type:Scratch.ArgumentType.NUMBER,defaultValue:1},
 					}
 				},
-				{ opcode:'디버그', blockType:Scratch.BlockType.REPORTER, text:'디버그 [i] ', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
-                { opcode:'loadSource', blockType:Scratch.BlockType.COMMAND, text:'파일 불러오기 [SOURCE] URL:[URL]',
-                  arguments:{
-					SOURCE:{type:Scratch.ArgumentType.STRING, menu:'sourceMenu', defaultValue:'로컬 폴더'},
-					URL: {
-						type: Scratch.ArgumentType.STRING,
-						defaultValue: `[
-							"https://github.com/qaz00217/obhfile/blob/main/skin.png",
-							"https://github.com/qaz00217/obhfile/blob/main/sbm1.obj",
-							"https://github.com/qaz00217/obhfile/blob/main/sbm1.mtl",
-							"https://github.com/qaz00217/obhfile/blob/main/Untitled.png"
-						]`
-					}
-                  }
-                },
-				{ opcode:'getObjectNames', blockType:Scratch.BlockType.REPORTER, text:'getObjectNames [i] ', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
-				'---', 
-				{ opcode:'xmove', blockType:Scratch.BlockType.COMMAND, text:'좌우로 [i] 만큼 움직이기', arguments:{ i:{type:Scratch.ArgumentType.NUMBER,defaultValue:1} } },
-				{ opcode:'dx바꾸기', blockType:Scratch.BlockType.COMMAND, text:'x축을 [i] 만큼 회전하기', arguments:{ i:{type:Scratch.ArgumentType.NUMBER,defaultValue:15} } },
-				{ opcode:'ymove', blockType:Scratch.BlockType.COMMAND, text:'상하로 [i] 만큼 움직이기', arguments:{ i:{type:Scratch.ArgumentType.NUMBER,defaultValue:1} } },				
+				{ opcode:'dx바꾸기', blockType:Scratch.BlockType.COMMAND, text:'x축을 [i] 만큼 회전하기', arguments:{ i:{type:Scratch.ArgumentType.NUMBER,defaultValue:15} } },			
 				{ opcode:'dy바꾸기', blockType:Scratch.BlockType.COMMAND, text:'y축을 [i] 만큼 회전하기', arguments:{ i:{type:Scratch.ArgumentType.NUMBER,defaultValue:15} } },
-				{ opcode:'zmove', blockType:Scratch.BlockType.COMMAND, text:'앞뒤로 [i] 만큼 움직이기', arguments:{ i:{type:Scratch.ArgumentType.NUMBER,defaultValue:1} } },
 				{ opcode:'dz바꾸기', blockType:Scratch.BlockType.COMMAND, text:'z축을 [i] 만큼 회전하기', arguments:{ i:{type:Scratch.ArgumentType.NUMBER,defaultValue:15} } },
 				'---',
 				{
@@ -806,9 +706,9 @@ class MatrixBlocks {
 					height:{type:Scratch.ArgumentType.NUMBER,defaultValue:360},
 					},
 				},
-                { opcode:'카메라메뉴', blockType:Scratch.BlockType.COMMAND, text:'카메라메뉴 [SOURCE]',
+                { opcode:'타입변경', blockType:Scratch.BlockType.COMMAND, text:'타입변경 [SOURCE]',
                   arguments:{
-                      SOURCE:{type:Scratch.ArgumentType.STRING, menu:'sourceMenu2', defaultValue:'카메라1'},
+                      SOURCE:{type:Scratch.ArgumentType.STRING, menu:'sourceMenu2', defaultValue:'오브젝트'},
                   }
                 },
 				{
@@ -825,13 +725,47 @@ class MatrixBlocks {
 						mode: { type: Scratch.ArgumentType.STRING, menu: 'modeMenu', defaultValue: '이동' },
 						far: { type: Scratch.ArgumentType.NUMBER, defaultValue: 1000 },
 						near: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0.1 },
-						fov: { type: Scratch.ArgumentType.NUMBER, defaultValue: 52 },
+						fov: { type: Scratch.ArgumentType.NUMBER, defaultValue: 90 },
 					}
 				},
+				{
+					opcode: '카메라이동회전크기',
+					blockType: Scratch.BlockType.COMMAND,
+					text: '[mode] 카메라시선 위치/회전/크기 x:[x] y:[y] z:[z]',
+					arguments: {
+						mode: { type: Scratch.ArgumentType.STRING, menu: 'modeMenu', defaultValue: '이동' },
+						x: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
+						y: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
+						z: { type: Scratch.ArgumentType.NUMBER, defaultValue: 0 },
+					}
+				},
+                { opcode:'setLight', blockType:Scratch.BlockType.COMMAND, text:'광원 방향 설정 X:[X] Y:[Y] Z:[Z]',
+				    arguments:{
+					    X:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
+					    Y:{type:Scratch.ArgumentType.NUMBER, defaultValue:0},
+					    Z:{type:Scratch.ArgumentType.NUMBER, defaultValue:1}
+					}
+				},
+				{ opcode:'디버그', blockType:Scratch.BlockType.REPORTER, text:'디버그 [i] ', arguments:{i:{type:Scratch.ArgumentType.NUMBER, defaultValue:0}}},
+                { opcode:'loadSource', blockType:Scratch.BlockType.COMMAND, text:'파일 불러오기 [SOURCE] URL:[URL]',
+                  arguments:{
+					SOURCE:{type:Scratch.ArgumentType.STRING, menu:'sourceMenu', defaultValue:'로컬 폴더'},
+					URL: {
+						type: Scratch.ArgumentType.STRING,
+						defaultValue: `[
+							"https://github.com/qaz00217/obhfile/blob/main/skin.png",
+							"https://github.com/qaz00217/obhfile/blob/main/sbm1.obj",
+							"https://github.com/qaz00217/obhfile/blob/main/sbm1.mtl",
+							"https://github.com/qaz00217/obhfile/blob/main/Untitled.png"
+						]`
+					}
+                  }
+                },
 			],
             menus: {
                 sourceMenu: ['로컬 폴더', 'GitHub URL'],
-				sourceMenu2: ['카메라1', '카메라2'],
+				sourceMenu2: ['카메라1', '카메라2','오브젝트'],
+				이동방향: ['상하좌우', '상하', '좌우'],
 				modeMenu:['이동','회전','크기'],
 				  OBJECT_MENU: {
 					acceptReporters: true,
@@ -852,6 +786,47 @@ getObjectMenu() {
     text: `${i}: ${o.name || 'object'}`,
   }));
 }
+async loadSource({ SOURCE, URL }) {
+    // 초기 리소스
+    set3d = {
+        오브젝트: {},
+        메테리얼: {},
+        텍스처: {}
+    };
+
+    if (SOURCE === '로컬 폴더') {
+        await loadFolderTextures();
+        console.log('✅ 로컬 폴더 파일 불러오기 완료');
+    } else if (SOURCE === 'GitHub URL') {
+        let URLs;
+        try {
+            URLs = JSON.parse(URL); // JSON 문자열 → 배열
+            if (!Array.isArray(URLs)) throw new Error();
+        } catch (e) {
+            console.error('❌ URL은 JSON 배열 문자열이어야 합니다. 예: ["url1","url2"]');
+            return;
+        }
+
+        if (URLs.length === 0) {
+            console.warn('❌ URL이 입력되지 않았습니다.');
+            return;
+        }
+
+        // 순차적으로 파일 로드
+        for (const singleURL of URLs) {
+            try {
+                await loadFile(singleURL);
+                console.log(`✅ ${singleURL} 로드 완료`);
+            } catch (err) {
+                console.error(`❌ ${singleURL} 로드 실패`, err);
+            }
+        }
+    }
+
+    collectResources();
+    console.log('모든 리소스 수집 완료');
+}
+
 원근투영({far,near,fov}){
     const aspect = screenw / screenh;   // ★ OpenGL은 width / height
     const fov1 = fov * Math.PI / 180;      // ★ radian
@@ -878,6 +853,52 @@ getObjectMenu() {
     p[14] = (2 * far * near) / (near - far);
     p[15] = 0;
 }
+
+constructor() {
+
+	this.원근투영({far:1000,near:0.1,fov:90})
+this.initResources(); // async 초기화 함수 호출
+}
+    async initResources() {
+        // 첫 번째 loadSource
+        await this.loadSource({
+            SOURCE: "GitHub URL",
+            URL: `[
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/skin.png",
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/sbm1.obj",
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/sbm1.mtl",
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/Untitled.png"
+            ]`,
+
+        });
+
+        // 두 번째 loadSource (연속 호출, 기존 데이터 유지)
+        await this.loadSource({
+            SOURCE: "GitHub URL",
+            URL: `[
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/a11/Untitled.obj",
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/a11/Untitled.mtl",
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/a11/5ec0cdf5-792c-4816-bd00-2bc63c78b639.png",
+                "https://raw.githubusercontent.com/qaz00217/obhfile/main/a11/21337364_6465863.jpg"
+            ]`,
+
+        });
+        await this.loadSource({
+            SOURCE: "GitHub URL",
+            URL: `[
+                "https://raw.githubusercontent.com/qaz00217/obhfile/refs/heads/main/%EB%B0%94%EB%8B%A5/56acafdd6237765ff4d1b543ec611185.jpg",
+                "https://raw.githubusercontent.com/qaz00217/obhfile/refs/heads/main/%EB%B0%94%EB%8B%A5/Untitled.obj",
+				"https://raw.githubusercontent.com/qaz00217/obhfile/refs/heads/main/%EB%B0%94%EB%8B%A5/Untitled.mtl",
+            ]`,
+
+        });
+        console.log("✅ 모든 리소스 로드 완료");
+    }
+
+타입변경({SOURCE}, util){
+	const obj = util.target.software3D;
+	obj.type=SOURCE;
+	}
 겟타입(_, util){
 		const obj = util.target.software3D;
 		return obj.type;
@@ -924,41 +945,24 @@ getObjectMenu() {
     obj.pack = objectpack[idx];
 }
 
-constructor() {
+상대쪽으로이동({ i }, util) {
+    const otherSprite = vm.runtime.targets[i];  // 대상 스프라이트
+    if (!otherSprite || !otherSprite.software3D) return;
 
-	this.원근투영({far:1000,near:0.1,fov:90})
-    this.loadSource({
-        SOURCE: "GitHub URL",
-        URL: `[
-            "https://raw.githubusercontent.com/qaz00217/obhfile/main/skin.png",
-            "https://raw.githubusercontent.com/qaz00217/obhfile/main/sbm1.obj",
-            "https://raw.githubusercontent.com/qaz00217/obhfile/main/sbm1.mtl",
-            "https://raw.githubusercontent.com/qaz00217/obhfile/main/Untitled.png"
-        ]`
-    });
+    const otherObj = otherSprite.software3D;
+    const obj = util.target.software3D;          // 현재 스프라이트
+
+    obj.tx = otherObj.tx;
+    obj.ty = otherObj.ty;
+    obj.tz = otherObj.tz;
+    obj.dirty = true;
 }
+상대방보기({ i }, util) {
+    const otherSprite = vm.runtime.targets[i];  // 대상 스프라이트
+    if (!otherSprite || !otherSprite.software3D) return;
 
-
-	카메라메뉴({SOURCE}){
-	카메라행렬=SOURCE;
-	const obj = objectpack[0];
-	obj.dirty = true;
-	}
-    상대쪽으로이동({target}, util) {
-		const idx = util.target._software3DIndex;
-        const obj1 = objectpack[target];
-        const obj2 = objectpack[idx];
-        obj2.tx = obj1.tx;
-        obj2.ty = obj1.ty;
-        obj2.tz = obj1.tz;
-        obj2.dirty = true;
-    }
-
-상대방보기({target}, util) {
-	const idx = util.target._software3DIndex;
-    const targetObj = objectpack[target];
-    const viewerObj = objectpack[idx];
-    if (!targetObj || !viewerObj) return;
+    const targetObj = otherSprite.software3D;   // 타겟 좌표
+    const viewerObj = util.target.software3D;   // 현재 스프라이트
 
     const dx = targetObj.tx - viewerObj.tx;
     const dy = targetObj.ty - viewerObj.ty;
@@ -966,160 +970,163 @@ constructor() {
 
     const distXZ = Math.hypot(dx, dz) || 1e-6;
 
-    // yaw (Y축)
-    let yaw = Math.atan2(dx, dz);
+    // yaw (Y축 회전)
+    let yaw = (Math.atan2(dx, dz) * 180 / Math.PI + 360) % 360;
 
-    // pitch (X축)
-    let pitch = -Math.atan2(dy, distXZ);
-
-    // rad → deg → 0~360
-    yaw   = (yaw   * 180 / Math.PI + 360) % 360;
-    pitch = (pitch * 180 / Math.PI + 360) % 360;
+    // pitch (X축 회전)
+    let pitch = (-Math.atan2(dy, distXZ) * 180 / Math.PI + 360) % 360;
 
     viewerObj.dy = yaw;    // Y
     viewerObj.dx = pitch;  // X
     viewerObj.dz = 0;      // Z (roll)
-
     viewerObj.dirty = true;
 }
 
-	해상도바꾸기({width, height}){
-		screenw=width;
-		screenh=height;
-		w = screenw/2;
-		h = screenh/2;
-		화면z = new Float32Array(screenw * screenh).fill(Infinity);
-		frameRGBA = new Uint8ClampedArray(screenw * screenh * 4);
-	}
-	dx바꾸기({ i }, util) {
-		const obj = util.target.software3D;
-		obj.dx += i;
-		obj.dirty = true;
-	}
-
-	dy바꾸기({ i }, util) {
-		const obj = util.target.software3D;
-		obj.dy += i;
-		obj.dirty = true;
-	}
-
-	dz바꾸기({ i }, util) {
-		const obj = util.target.software3D;
-		obj.dz += i;
-		obj.dirty = true;
-	}
-
-	setdx({ i }, util) {
-		const obj = util.target.software3D;
-		obj.dx = i;
-		obj.dirty = true;
-	}
-
-	setdy({ i }, util) {
-		const obj = util.target.software3D;
-		obj.dy = i;
-		obj.dirty = true;
-	}
-
-	setdz({ i }, util) {
-		const obj = util.target.software3D;
-		obj.dz = i;
-		obj.dirty = true;
-	}
-
-	x바꾸기({ i }, util) {
-		const obj = util.target.software3D;
-		obj.tx += i;
-		obj.dirty = true;
-	}
-
-	y바꾸기({ i }, util) {
-		const obj = util.target.software3D;
-		obj.ty += i;
-		obj.dirty = true;
-	}
-
-	z바꾸기({ i }, util) {
-		const obj = util.target.software3D;
-		obj.tz += i;
-		obj.dirty = true;
-	}
-
-	setx({ i }, util) {
-		const obj = util.target.software3D;
-		obj.tx = i;
-		obj.dirty = true;
-	}
-
-	sety({ i }, util) {
-		const obj = util.target.software3D;
-		obj.ty = i;
-		obj.dirty = true;
-	}
-
-	setz({ i }, util) {
-		const obj = util.target.software3D;
-		obj.tz = i;
-		obj.dirty = true;
-	}
-
-	xmove({ i }, util) {
-		const obj = util.target.software3D;
-
-		회전(obj.dx, obj.dy, obj.dz);
-		const m = 행렬곱([ry, rz]);
-
-		obj.tx += m[0] * i;
-		obj.ty += m[1] * i;
-		obj.tz += m[2] * i;
-
-		obj.dirty = true;
-	}
-
-	ymove({ i }, util) {
-		const obj = util.target.software3D;
-
-		회전(obj.dx, obj.dy, obj.dz);
-		const m = 행렬곱([ry, rz]);
-
-		obj.tx += m[4] * i;
-		obj.ty += m[5] * i;
-		obj.tz += m[6] * i;
-
-		obj.dirty = true;
-	}
-
-	zmove({ i }, util) {
-		const obj = util.target.software3D;
-
-		회전(obj.dx, obj.dy, obj.dz);
-		const m = 행렬곱([ry, rz]);
-
-		obj.tx += m[8] * i;
-		obj.ty += m[9] * i;
-		obj.tz += m[10] * i;
-
-		obj.dirty = true;
-	}
-
-
-	draw(){
-		window.drawFrameRGBA(frameRGBA);
-	}
-cam행렬({ tx, ty, tz, dx, dy, dz, sx, sy, sz }) {
-    // inverse trs 생성
-    itrs(tx, ty, tz, dx, dy, dz, sx, sy, sz);
-
-    if (카메라행렬 === "카메라2") {
-        cam1 = 행렬곱([it, irz, iry, irx, is]);
-    }
-
-    if (카메라행렬 === "카메라1") {
-        cam1 = 행렬곱([is, irz, iry, irx, it]);
-    }
+dx바꾸기({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.dx += i;
+    obj.dirty = true;
 }
 
+dy바꾸기({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.dy += i;
+    obj.dirty = true;
+}
+
+dz바꾸기({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.dz += i;
+    obj.dirty = true;
+}
+
+setdx({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.dx = i;
+    obj.dirty = true;
+}
+
+setdy({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.dy = i;
+    obj.dirty = true;
+}
+
+setdz({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.dz = i;
+    obj.dirty = true;
+}
+
+x바꾸기({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.tx += i;
+    obj.dirty = true;
+}
+
+y바꾸기({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.ty += i;
+    obj.dirty = true;
+}
+
+z바꾸기({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.tz += i;
+    obj.dirty = true;
+}
+
+setx({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.tx = i;
+    obj.dirty = true;
+}
+
+sety({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.ty = i;
+    obj.dirty = true;
+}
+
+setz({ i }, util) {
+    i = Number(i);
+    const obj = util.target.software3D;
+    obj.tz = i;
+    obj.dirty = true;
+}
+
+이동방향으로움직이기({ 이동방향, x, y, z }, util) {
+    x = Number(x);
+    y = Number(y);
+    z = Number(z);
+    const obj = util.target.software3D;
+	이동(x, y, z);
+    회전(obj.dx, obj.dy, obj.dz);
+    const R = 행렬곱([t, rz, ry, rx]);
+	let x증가 = 0;
+	let y증가 = 0;
+	let z증가 = 0;
+
+    if (이동방향 === "상하") {
+        y증가= R[13];
+        z증가= R[14];
+    } 
+	if (이동방향 === "좌우") {
+        x증가= R[12];
+        z증가= R[14];
+    } 
+
+	if (이동방향 === "상하좌우") {
+        x증가= R[12];
+        y증가= R[13];
+        z증가= R[14];
+
+    } 
+	obj.tx += Number(x증가);
+	obj.ty += Number(y증가);
+	obj.tz += Number(z증가);
+    obj.dirty = true;
+}
+
+	카메라이동회전크기({mode, x, y, z}) {
+    const otherSprite = vm.runtime.targets[0];  // 대상 스프라이트
+    if (!otherSprite || !otherSprite.software3D) return;
+
+    const obj = otherSprite.software3D;
+	obj.dirty = true;
+		switch(mode) {
+			case "이동":
+				카메라시선.tx = x;
+				카메라시선.ty = y;
+				카메라시선.tz = z;
+				break;
+			case "회전":
+				카메라시선.dx = x;
+				카메라시선.dy = y;
+				카메라시선.dz = z;
+				break;
+			case "크기":
+				카메라시선.sx = x;
+				카메라시선.sy = y;
+				카메라시선.sz = z;
+				break;
+		}
+	}
 	이동회전크기({mode, x, y, z}, util) {
+	    x = Number(x);
+	    x = Number(x);
+	    x = Number(x);
 		const obj = util.target.software3D;
 		if (!obj) return;
 
@@ -1143,23 +1150,33 @@ cam행렬({ tx, ty, tz, dx, dy, dz, sx, sy, sz }) {
 
 		obj.dirty = true;
 	}
+	해상도바꾸기({width, height}){
+		screenw=width;
+		screenh=height;
+		w = screenw/2;
+		h = screenh/2;
+		화면z = new Float32Array(screenw * screenh).fill(Infinity);
+		frameRGBA = new Uint8ClampedArray(screenw * screenh * 4);
+	}
+	draw(){
+		window.drawFrameRGBA(frameRGBA);
+	}
+cam행렬(tx, ty, tz, dx, dy, dz, sx, sy, sz) {
 
+	itrs(카메라시선.tx, 카메라시선.ty, 카메라시선.tz,
+	카메라시선.dx, 카메라시선.dy, 카메라시선.dz,
+	카메라시선.sx, 카메라시선.sy, 카메라시선.sz);
+	cam1 = 행렬곱([is, irz, iry, irx, it]);
+	
+    itrs(tx, ty, tz, dx, dy, dz, sx, sy, sz);
+	cam = 행렬곱([it, irz, iry, irx, is ]);
+}
 
 	renderAllObjects(obj) {
 		if (!obj) return;
-		if (obj.type === "카메라" && obj.dirty) {
+		if (obj.type === "카메라1" && obj.dirty) {
 			obj.dirty = false;
-			this.cam행렬({
-				tx: obj.tx,
-				ty: obj.ty,
-				tz: obj.tz,
-				dx: obj.dx,
-				dy: obj.dy,
-				dz: obj.dz,
-				sx: obj.sx,
-				sy: obj.sy,
-				sz: obj.sz
-			});
+			this.cam행렬(obj.tx,obj.ty,obj.tz,obj.dx,obj.dy,obj.dz,obj.sx,obj.sy,obj.sz);
 		}
 		else if (obj.type=="오브젝트"){
 		if (obj.dirty){
@@ -1167,126 +1184,19 @@ cam행렬({ tx, ty, tz, dx, dy, dz, sx, sy, sz }) {
 			trs(obj.tx, obj.ty, obj.tz, obj.dx, obj.dy, obj.dz, obj.sx, obj.sy, obj.sz);
 			obj.matrix = 행렬곱([s, rz, ry, rx, t]);
 		}
-		방향행렬=행렬곱([cam1,obj.matrix]);
-		wtrs = 행렬곱([obj.matrix, cam1, p]);
+		방향행렬=행렬곱([cam,obj.matrix]);
+		wtrs = 행렬곱([cam1,obj.matrix, cam, p]);
 		this.renderAll(obj.pack);
 		}
 	}
-	
-async loadSource({ SOURCE, URL }) {
-    // 초기 리소스
-    set3d = {
-        오브젝트: {},
-        메테리얼: {},
-        텍스처: {}
-    };
 
-    if (SOURCE === '로컬 폴더') {
-        await this.loadFolderTextures();
-        console.log('✅ 로컬 폴더 파일 불러오기 완료');
-    } else if (SOURCE === 'GitHub URL') {
-        let URLs;
-        try {
-            URLs = JSON.parse(URL); // JSON 문자열 → 배열
-            if (!Array.isArray(URLs)) throw new Error();
-        } catch (e) {
-            console.error('❌ URL은 JSON 배열 문자열이어야 합니다. 예: ["url1","url2"]');
-            return;
-        }
+디버그({ i }, util) {
+console.log(
+  Object.getOwnPropertyNames(Scratch)
+);
 
-        if (URLs.length === 0) {
-            console.warn('❌ URL이 입력되지 않았습니다.');
-            return;
-        }
-
-        // 순차적으로 파일 로드
-        for (const singleURL of URLs) {
-            try {
-                await this.loadFile(singleURL);
-                console.log(`✅ ${singleURL} 로드 완료`);
-            } catch (err) {
-                console.error(`❌ ${singleURL} 로드 실패`, err);
-            }
-        }
-    }
-
-    collectResources();
-    console.log('모든 리소스 수집 완료');
 }
 
-
-	async loadFolderTextures() {
-		// 1️⃣ 폴더 선택
-		const files = await new Promise(resolve => {
-			const input = document.createElement("input");
-			input.type = "file";
-			input.webkitdirectory = true; // 폴더 선택
-			input.multiple = true;
-			input.onchange = () => resolve(Array.from(input.files));
-			input.click();
-		});
-		if (!files || !files.length) return;
-
-		// 2️⃣ 파일별 처리
-		for (const file of files) {
-			const ext = file.name.split('.').pop().toLowerCase();
-			if (ext === 'obj') {
-				const text = await file.text();
-				parseOBJ(text);
-			} else if (ext === 'mtl') {
-				const text = await file.text();
-				parseMTL(text);
-			} else if (['png','jpg','jpeg','webp'].includes(ext)) {
-				const url = URL.createObjectURL(file);
-				await this._loadTextureFromBlob(url, file.name);
-				URL.revokeObjectURL(url);
-			} else {
-				console.warn("지원하지 않는 파일:", file.name);
-			}
-		}
-	}
-	async _loadTextureFromBlob(blobUrl, fileName) {
-		const img = await new Promise((resolve, reject) => {
-			const image = new Image();
-			image.onload = () => resolve(image);
-			image.onerror = reject;
-			image.src = blobUrl;
-		});
-
-		const canvas = document.createElement("canvas");
-		canvas.width = img.width;
-		canvas.height = img.height;
-		const ctx = canvas.getContext("2d");
-		ctx.drawImage(img, 0, 0);
-
-		set3d.텍스처[fileName] = {
-			해상도: [img.width, img.height],
-			데이터: ctx.getImageData(0, 0, img.width, img.height).data
-		};
-	}
-
-	async loadFile(URL) {
-		const ext = URL.split('.').pop().toLowerCase();
-
-		if (ext === 'obj') {
-			const objRaw = toRawGitHubURL(URL);
-			const objText = await fetch(objRaw).then(r => r.text());
-			parseOBJ(objText);
-		} else if (ext === 'mtl') {
-			const mtlRaw = toRawGitHubURL(URL);
-			const mtlText = await fetch(mtlRaw).then(r => r.text());
-			parseMTL(mtlText);
-		} else if (['png','jpg','jpeg','webp'].includes(ext)) {
-			await loadTextureFromGitHub(URL);
-		} else {
-			console.warn("지원하지 않는 확장자:", ext);
-		}
-}
-
-async 디버그({i}) {
-
-		return cam1;
-}
 
 	clip(삼각형0, 삼각형1, 삼각형2) {
 		let v모음 = [this._transformVertex(삼각형0), this._transformVertex(삼각형1), this._transformVertex(삼각형2)];
@@ -1417,12 +1327,6 @@ async 디버그({i}) {
 		}
 
 	}
-	getObjectNames({i}) {
-		const names = Object.keys(set3d.오브젝트);
-		return names[i] || "";
-	}
-
-
 
 
 	화면삼각형(tx, ty, tz, pw){
@@ -1442,7 +1346,7 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
 	[x1,y1,z1]=this.화면삼각형(x1,y1,z1,w1);
 	[x2,y2,z2]=this.화면삼각형(x2,y2,z2,w2);
     const area=(x1-x0)*(y2-y0)-(y1-y0)*(x2-x0);
-    if(area<=0) return;
+    //if(area<=0) return;
 
     const minX=Math.max(0,Math.floor(Math.min(x0,x1,x2)));
     const maxX=Math.min(screenw-1,Math.ceil(Math.max(x0,x1,x2)));
@@ -1510,14 +1414,15 @@ rasterTriangle(삼각형0,삼각형1,삼각형2){
 const __3d = new MatrixBlocks();
 Scratch.extensions.register(__3d);
 
-
-
+// 1️⃣ draw override 한 번만
 let _needDraw = false;
 let 스프라이트카운트=0;
 // 1️⃣ draw override 한 번만
 (function 터보워프VM() {
-  const vm = Scratch.vm;
-  const renderer = Scratch.vm.renderer;
+const vm = window.vm;
+const runtime = vm.runtime;
+const renderer = vm.renderer;
+
   const oldDraw = renderer.draw;
 
   renderer.draw = function(...args) {
@@ -1540,17 +1445,16 @@ let 스프라이트카운트=0;
 	__3d.clearFrame();
     vm.runtime.targets.forEach(t => {
       if (t.software3D === undefined) {
-		t.setSize(0); // 2D 렌더 제거
 		t.software3D=스프라이트구조체("오브젝트");
 		if (t.isStage){
 		const obj = t.software3D;
-		obj.type="카메라";
-		obj.tz = 3;
+		obj.type="카메라1";
+		obj.tz = 2;
 		obj.dirty = true;
 		}
       }
     // objectpack이 준비되었을 때만 바인딩
-    if (!t.software3D.pack && objectpack[0]) {
+    if (!t.isStage && !t.software3D.pack && objectpack[0]) {
         t.software3D.pack = objectpack[0];
     }
     __3d.renderAllObjects(t.software3D); // 필요하면 인자 전달
@@ -1563,6 +1467,4 @@ let 스프라이트카운트=0;
   };
 })();
 
-
 })(Scratch);
-
